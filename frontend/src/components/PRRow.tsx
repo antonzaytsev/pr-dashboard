@@ -13,9 +13,21 @@ function timeAgo(iso: string): string {
 
 export function PRRow({ pr }: Props) {
   const statusClass =
-    pr.status === "changes_requested" ? "badge changes" : "badge review";
+    pr.status === "draft"
+      ? "badge draft"
+      : pr.status === "approved"
+        ? "badge approved"
+        : pr.status === "changes_requested"
+          ? "badge changes"
+          : "badge review";
   const statusLabel =
-    pr.status === "changes_requested" ? "Changes Requested" : "Review Required";
+    pr.status === "draft"
+      ? "Draft"
+      : pr.status === "approved"
+        ? "Approved"
+        : pr.status === "changes_requested"
+          ? "Changes Requested"
+          : "Review Required";
 
   return (
     <tr>
@@ -51,6 +63,11 @@ export function PRRow({ pr }: Props) {
         {pr.changes_requested_by.length === 0
           ? "—"
           : pr.changes_requested_by.join(", ")}
+      </td>
+      <td className="commented">
+        {pr.commented_by.length === 0
+          ? "—"
+          : pr.commented_by.join(", ")}
       </td>
       <td className="updated">{timeAgo(pr.updated_at)}</td>
     </tr>

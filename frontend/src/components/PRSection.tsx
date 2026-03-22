@@ -26,6 +26,7 @@ export function PRSection({ section }: Props) {
               <th className="col-requested">Requested From</th>
               <th className="col-approved">Approved By</th>
               <th className="col-changes">Changes Req.</th>
+              <th className="col-commented">Commented</th>
               <th className="col-updated">Updated</th>
             </tr>
           </thead>

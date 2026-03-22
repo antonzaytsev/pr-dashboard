@@ -10,12 +10,13 @@ REPO = "sdtechdev/spree-jiffyshirts"
 MY_ALIASES = %w[zaytsev-anton antonzaytsev].freeze
 GH_TOKEN = ENV.fetch("GITHUB_TOKEN")
 POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "300")) # seconds
-DAYS_WINDOW = Integer(ENV.fetch("DAYS_WINDOW", "3"))
+$days_window = Integer(ENV.fetch("DAYS_WINDOW", "3"))
 
 set :bind, "0.0.0.0"
 set :port, 4567
 
 $pr_cache = { sections: [], updated_at: nil, total: 0 }
+$my_pr_cache = { sections: [], updated_at: nil, total: 0 }
 $cache_mutex = Mutex.new
 
 # --- GitHub API helpers ---
@@ -52,6 +53,7 @@ def fetch_prs
               reviewDecision
               reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
               reviews(first: 50) { nodes { author { login } state submittedAt } }
+              comments(first: 100) { nodes { author { login } } }
             }
           }
         }
@@ -64,7 +66,7 @@ def fetch_prs
 
     all_prs.concat(pr_nodes)
 
-    cutoff = Time.now - (DAYS_WINDOW * 86400)
+    cutoff = Time.now - ($days_window * 86400)
     last_updated = pr_nodes.last && Time.parse(pr_nodes.last["updatedAt"])
     break if last_updated && last_updated < cutoff
     break unless page_info&.dig("hasNextPage")
@@ -75,74 +77,140 @@ def fetch_prs
   all_prs
 end
 
-def process_prs(raw_prs)
-  cutoff = Time.now - (DAYS_WINDOW * 86400)
+def extract_pr_details(pr)
+  requested = (pr.dig("reviewRequests", "nodes") || []).map { |r|
+    r.dig("requestedReviewer", "login") || r.dig("requestedReviewer", "name")
+  }.compact
 
-  filtered = raw_prs.select do |pr|
-    next false if pr["isDraft"]
+  requested_from_me = MY_ALIASES.any? { |a| requested.include?(a) }
 
-    author = pr.dig("author", "login")
-    next false if MY_ALIASES.include?(author)
-    next false unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
-
-    Time.parse(pr["updatedAt"]) > cutoff
+  latest_reviews = {}
+  (pr.dig("reviews", "nodes") || []).each do |r|
+    login = r.dig("author", "login")
+    next unless login
+    ts = r["submittedAt"]
+    prev = latest_reviews[login]
+    latest_reviews[login] = r if prev.nil? || (ts && prev["submittedAt"] && ts > prev["submittedAt"])
   end
+
+  commented_by = (pr.dig("comments", "nodes") || []).filter_map { |c| c.dig("author", "login") }.uniq.sort
+  reviewed = (pr.dig("reviews", "nodes") || []).any? { |r| MY_ALIASES.include?(r.dig("author", "login")) }
+
+  { requested: requested, requested_from_me: requested_from_me,
+    latest_reviews: latest_reviews, commented_by: commented_by, reviewed: reviewed }
+end
+
+def build_pr_hash(pr, details)
+  approved_by = details[:latest_reviews].select { |_, r| r["state"] == "APPROVED" }.keys.sort
+  changes_requested_by = details[:latest_reviews].select { |_, r| r["state"] == "CHANGES_REQUESTED" }.keys.sort
+
+  status = if pr["isDraft"]
+             "draft"
+           elsif pr["reviewDecision"] == "APPROVED"
+             "approved"
+           elsif pr["reviewDecision"] == "CHANGES_REQUESTED"
+             "changes_requested"
+           else
+             "review_required"
+           end
+
+  {
+    number: pr["number"],
+    title: pr["title"],
+    author: pr.dig("author", "login"),
+    status: status,
+    requested_from: details[:requested],
+    is_me_requested: details[:requested_from_me],
+    approved_by: approved_by,
+    changes_requested_by: changes_requested_by,
+    commented_by: details[:commented_by],
+    updated_at: pr["updatedAt"],
+    url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
+  }
+end
+
+def process_prs(raw_prs)
+  cutoff = Time.now - ($days_window * 86400)
 
   sections = [
     { id: 1, title: "Review requested from me", color: "#d29922", prs: [] },
     { id: 2, title: "Not reviewed by me", color: "#58a6ff", prs: [] },
-    { id: 3, title: "Already reviewed by me", color: "#3fb950", prs: [] }
+    { id: 3, title: "Already reviewed by me", color: "#3fb950", prs: [] },
+    { id: 4, title: "Draft", color: "#8b949e", prs: [] }
   ]
 
-  filtered.each do |pr|
-    requested = (pr.dig("reviewRequests", "nodes") || []).map { |r|
-      r.dig("requestedReviewer", "login") || r.dig("requestedReviewer", "name")
-    }.compact
-    reviewed = (pr.dig("reviews", "nodes") || []).any? { |r| MY_ALIASES.include?(r.dig("author", "login")) }
-    requested_from_me = MY_ALIASES.any? { |a| requested.include?(a) }
+  raw_prs.each do |pr|
+    next if Time.parse(pr["updatedAt"]) <= cutoff
+    next if MY_ALIASES.include?(pr.dig("author", "login"))
 
-    latest_reviews = {}
-    (pr.dig("reviews", "nodes") || []).each do |r|
-      login = r.dig("author", "login")
-      next unless login
-      ts = r["submittedAt"]
-      prev = latest_reviews[login]
-      latest_reviews[login] = r if prev.nil? || (ts && prev["submittedAt"] && ts > prev["submittedAt"])
+    details = extract_pr_details(pr)
+
+    if pr["isDraft"]
+      sections[3][:prs] << build_pr_hash(pr, details)
+      next
     end
 
-    approved_by = latest_reviews.select { |_, r| r["state"] == "APPROVED" }.keys.sort
-    changes_requested_by = latest_reviews.select { |_, r| r["state"] == "CHANGES_REQUESTED" }.keys.sort
+    next unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
 
-    section = if requested_from_me then 0
-              elsif !reviewed then 1
+    section = if details[:requested_from_me] then 0
+              elsif !details[:reviewed] then 1
               else 2
               end
 
-    sections[section][:prs] << {
-      number: pr["number"],
-      title: pr["title"],
-      author: pr.dig("author", "login"),
-      status: pr["reviewDecision"] == "CHANGES_REQUESTED" ? "changes_requested" : "review_required",
-      requested_from: requested,
-      is_me_requested: requested_from_me,
-      approved_by: approved_by,
-      changes_requested_by: changes_requested_by,
-      updated_at: pr["updatedAt"],
-      url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
-    }
+    sections[section][:prs] << build_pr_hash(pr, details)
   end
 
   sections.each { |s| s[:prs].sort_by! { |p| -p[:number] } }
 
   total = sections.sum { |s| s[:prs].size }
-  { sections: sections, total: total, updated_at: Time.now.utc.iso8601, days_window: DAYS_WINDOW }
+  { sections: sections, total: total, updated_at: Time.now.utc.iso8601, days_window: $days_window }
+end
+
+def process_my_prs(raw_prs)
+  cutoff = Time.now - ($days_window * 86400)
+
+  sections = [
+    { id: 1, title: "Changes requested", color: "#f85149", prs: [] },
+    { id: 2, title: "Waiting for review", color: "#d29922", prs: [] },
+    { id: 3, title: "Approved", color: "#3fb950", prs: [] },
+    { id: 4, title: "Draft", color: "#8b949e", prs: [] }
+  ]
+
+  raw_prs.each do |pr|
+    next if Time.parse(pr["updatedAt"]) <= cutoff
+    next unless MY_ALIASES.include?(pr.dig("author", "login"))
+
+    details = extract_pr_details(pr)
+
+    if pr["isDraft"]
+      sections[3][:prs] << build_pr_hash(pr, details)
+      next
+    end
+
+    section = case pr["reviewDecision"]
+              when "CHANGES_REQUESTED" then 0
+              when "APPROVED" then 2
+              else 1
+              end
+
+    sections[section][:prs] << build_pr_hash(pr, details)
+  end
+
+  sections.each { |s| s[:prs].sort_by! { |p| -p[:number] } }
+
+  total = sections.sum { |s| s[:prs].size }
+  { sections: sections, total: total, updated_at: Time.now.utc.iso8601, days_window: $days_window }
 end
 
 def refresh_cache
   raw = fetch_prs
   result = process_prs(raw)
-  $cache_mutex.synchronize { $pr_cache = result }
-  $stderr.puts "[#{Time.now}] Refreshed: #{result[:total]} PRs"
+  my_result = process_my_prs(raw)
+  $cache_mutex.synchronize do
+    $pr_cache = result
+    $my_pr_cache = my_result
+  end
+  $stderr.puts "[#{Time.now}] Refreshed: #{result[:total]} PRs, #{my_result[:total]} my PRs"
 rescue StandardError => e
   $stderr.puts "[#{Time.now}] Refresh error: #{e.message}"
 end
@@ -174,7 +242,25 @@ get "/api/prs" do
   data.to_json
 end
 
+get "/api/my-prs" do
+  content_type :json
+  data = $cache_mutex.synchronize { $my_pr_cache.dup }
+  data.to_json
+end
+
 post "/api/refresh" do
+  refresh_cache
+  content_type :json
+  data = $cache_mutex.synchronize { $pr_cache.dup }
+  data.to_json
+end
+
+post "/api/days_window" do
+  body = JSON.parse(request.body.read)
+  new_window = Integer(body["days_window"])
+  halt 400, { error: "days_window must be between 1 and 30" }.to_json unless (1..30).include?(new_window)
+
+  $days_window = new_window
   refresh_cache
   content_type :json
   data = $cache_mutex.synchronize { $pr_cache.dup }
