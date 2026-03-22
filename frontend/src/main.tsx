@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
 import { ReviewPage } from "./pages/ReviewPage";
 import { MyPRsPage } from "./pages/MyPRsPage";
+import { SettingsPage } from "./pages/SettingsPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -12,6 +13,7 @@ createRoot(document.getElementById("root")!).render(
         <Route element={<App />}>
           <Route index element={<ReviewPage />} />
           <Route path="my-prs" element={<MyPRsPage />} />
+          <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

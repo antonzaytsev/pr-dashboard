@@ -48,11 +48,14 @@ def fetch_prs
               number
               title
               isDraft
+              createdAt
               updatedAt
               author { login }
               reviewDecision
               reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
               reviews(first: 50) { nodes { author { login } state submittedAt } }
+              commits(last: 1) { nodes { commit { committedDate } } }
+              reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
               comments(first: 100) { nodes { author { login } } }
             }
           }
@@ -96,8 +99,33 @@ def extract_pr_details(pr)
   commented_by = (pr.dig("comments", "nodes") || []).filter_map { |c| c.dig("author", "login") }.uniq.sort
   reviewed = (pr.dig("reviews", "nodes") || []).any? { |r| MY_ALIASES.include?(r.dig("author", "login")) }
 
+  my_reviewed_at = (pr.dig("reviews", "nodes") || [])
+    .select { |r| MY_ALIASES.include?(r.dig("author", "login")) && r["submittedAt"] }
+    .map { |r| r["submittedAt"] }
+    .max
+
+  my_latest_review_state = latest_reviews.select { |k, _| MY_ALIASES.include?(k) }.values.first&.dig("state")
+  my_approved = my_latest_review_state == "APPROVED"
+
+  author_replied = false
+  if reviewed && !my_approved && my_reviewed_at
+    pr_author = pr.dig("author", "login")
+    (pr.dig("reviewThreads", "nodes") || []).each do |thread|
+      comments = thread.dig("comments", "nodes") || []
+      next unless comments.any? { |c| MY_ALIASES.include?(c.dig("author", "login")) }
+
+      if comments.any? { |c| c.dig("author", "login") == pr_author && c["createdAt"] && c["createdAt"] > my_reviewed_at }
+        author_replied = true
+        break
+      end
+    end
+  end
+
+  needs_re_review = reviewed && !my_approved && author_replied
+
   { requested: requested, requested_from_me: requested_from_me,
-    latest_reviews: latest_reviews, commented_by: commented_by, reviewed: reviewed }
+    latest_reviews: latest_reviews, commented_by: commented_by, reviewed: reviewed,
+    my_reviewed_at: my_reviewed_at, my_approved: my_approved, needs_re_review: needs_re_review }
 end
 
 def build_pr_hash(pr, details)
@@ -124,7 +152,10 @@ def build_pr_hash(pr, details)
     approved_by: approved_by,
     changes_requested_by: changes_requested_by,
     commented_by: details[:commented_by],
+    created_at: pr["createdAt"],
     updated_at: pr["updatedAt"],
+    my_reviewed_at: details[:my_reviewed_at],
+    needs_re_review: !!details[:needs_re_review],
     url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
   }
 end
@@ -133,7 +164,7 @@ def process_prs(raw_prs)
   cutoff = Time.now - ($days_window * 86400)
 
   sections = [
-    { id: 1, title: "Review requested from me", color: "#d29922", prs: [] },
+    { id: 1, title: "Need my review", color: "#d29922", prs: [] },
     { id: 2, title: "Not reviewed by me", color: "#58a6ff", prs: [] },
     { id: 3, title: "Already reviewed by me", color: "#3fb950", prs: [] },
     { id: 4, title: "Draft", color: "#8b949e", prs: [] }
@@ -152,7 +183,9 @@ def process_prs(raw_prs)
 
     next unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
 
-    section = if details[:requested_from_me] then 0
+    section = if details[:my_approved] then 2
+              elsif details[:requested_from_me] then 0
+              elsif details[:needs_re_review] then 0
               elsif !details[:reviewed] then 1
               else 2
               end
@@ -220,7 +253,8 @@ end
 Thread.new do
   loop do
     refresh_cache
-    sleep POLL_INTERVAL
+    loaded = $cache_mutex.synchronize { $pr_cache[:updated_at] }
+    sleep(loaded ? POLL_INTERVAL : 10)
   end
 end
 

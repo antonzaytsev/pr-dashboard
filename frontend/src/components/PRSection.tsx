@@ -1,11 +1,15 @@
-import type { Section } from "../types";
+import type { Section, ColumnKey } from "../types";
+import { ALL_COLUMNS } from "../types";
 import { PRRow } from "./PRRow";
 
 interface Props {
   section: Section;
+  visibleColumns: Set<ColumnKey>;
 }
 
-export function PRSection({ section }: Props) {
+export function PRSection({ section, visibleColumns }: Props) {
+  const columns = ALL_COLUMNS.filter((c) => visibleColumns.has(c.key));
+
   return (
     <div className="section">
       <h2 style={{ borderLeftColor: section.color }}>
@@ -19,20 +23,16 @@ export function PRSection({ section }: Props) {
         <table>
           <thead>
             <tr>
-              <th className="col-pr">PR</th>
-              <th className="col-author">Author</th>
-              <th className="col-status">Status</th>
-              <th className="col-title">Title</th>
-              <th className="col-requested">Requested From</th>
-              <th className="col-approved">Approved By</th>
-              <th className="col-changes">Changes Req.</th>
-              <th className="col-commented">Commented</th>
-              <th className="col-updated">Updated</th>
+              {columns.map((col) => (
+                <th key={col.key} className={col.className}>
+                  {col.label}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {section.prs.map((pr) => (
-              <PRRow key={pr.number} pr={pr} />
+              <PRRow key={pr.number} pr={pr} visibleColumns={visibleColumns} />
             ))}
           </tbody>
         </table>

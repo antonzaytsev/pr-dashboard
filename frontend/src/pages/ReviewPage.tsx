@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import type { PRData } from "../types";
 import { PRSection } from "../components/PRSection";
+import { useColumnVisibility } from "../hooks/useColumnVisibility";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4567";
 
@@ -9,6 +10,7 @@ export function ReviewPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const { visibleColumns } = useColumnVisibility();
 
   const fetchData = useCallback(async () => {
     try {
@@ -41,9 +43,9 @@ export function ReviewPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30_000);
+    const interval = setInterval(fetchData, data?.updated_at ? 30_000 : 3_000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, data?.updated_at]);
 
   const updatedAt = data?.updated_at
     ? new Date(data.updated_at).toLocaleTimeString()
@@ -54,26 +56,36 @@ export function ReviewPage() {
       <header>
         <div className="header-left">
           <h1>PRs to Review</h1>
-          {data && (
+          {data && data.updated_at && (
             <span className="subtitle">
               {data.total} open · last {data.days_window}d · updated {updatedAt}
             </span>
           )}
         </div>
-        <button
-          className="refresh-btn"
-          onClick={triggerRefresh}
-          disabled={refreshing}
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="header-actions">
+          <button
+            className="refresh-btn"
+            onClick={triggerRefresh}
+            disabled={refreshing}
+          >
+            {refreshing ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </header>
 
       {loading && <div className="loading">Loading…</div>}
       {error && <div className="error">Error: {error}</div>}
 
+      {!loading && data && !data.updated_at && (
+        <div className="loading">Fetching PRs from GitHub, this may take a moment…</div>
+      )}
+
       {data?.sections.map((section) => (
-        <PRSection key={section.id} section={section} />
+        <PRSection
+          key={section.id}
+          section={section}
+          visibleColumns={visibleColumns}
+        />
       ))}
     </>
   );

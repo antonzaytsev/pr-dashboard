@@ -8,8 +8,9 @@ function App() {
         <NavLink to="/" end>
           PRs to Review
         </NavLink>
-        <NavLink to="/my-prs">
-          My PRs
+        <NavLink to="/my-prs">My PRs</NavLink>
+        <NavLink to="/settings" className="nav-settings">
+          Settings
         </NavLink>
       </nav>
       <Outlet />
