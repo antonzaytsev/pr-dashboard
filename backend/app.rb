@@ -13,7 +13,7 @@ POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "300")) # seconds
 $days_window = Integer(ENV.fetch("DAYS_WINDOW", "3"))
 
 set :bind, "0.0.0.0"
-set :port, 4567
+set :port, Integer(ENV.fetch("PORT", "4567"))
 
 $pr_cache = { sections: [], updated_at: nil, total: 0 }
 $my_pr_cache = { sections: [], updated_at: nil, total: 0 }

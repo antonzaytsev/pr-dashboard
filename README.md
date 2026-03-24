@@ -36,6 +36,8 @@ Edit `.env` and set your values:
 GITHUB_TOKEN=ghp_your_token_here
 POLL_INTERVAL=300
 DAYS_WINDOW=3
+BACKEND_PORT=4567
+FRONTEND_PORT=5173
 ```
 
 ### 2. Configure the repo and user
@@ -53,8 +55,8 @@ MY_ALIASES = %w[your-github-username].freeze
 docker compose up
 ```
 
-Frontend: http://localhost:5173
-Backend API: http://localhost:4567
+Frontend: http://localhost:5173 (or your `FRONTEND_PORT`)
+Backend API: http://localhost:4567 (or your `BACKEND_PORT`)
 
 ### 3b. Run without Docker
 
