@@ -2,26 +2,26 @@ services:
   backend:
     build: ./backend
     ports:
-      - "${BACKEND_PORT:-4567}:${BACKEND_PORT:-4567}"
+      - "${BACKEND_PORT:-4511}:${BACKEND_PORT:-4511}"
     volumes:
       - ./backend:/app
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - POLL_INTERVAL=${POLL_INTERVAL:-300}
-      - DAYS_WINDOW=${DAYS_WINDOW:-3}
-      - PORT=${BACKEND_PORT:-4567}
+
+      - PORT=${BACKEND_PORT:-4511}
     restart: unless-stopped
 
   frontend:
     build: ./frontend
     ports:
-      - "${FRONTEND_PORT:-5173}:${FRONTEND_PORT:-5173}"
+      - "${FRONTEND_PORT:-4510}:${FRONTEND_PORT:-4510}"
     volumes:
       - ./frontend:/app
       - /app/node_modules
     environment:
-      - VITE_API_URL=http://localhost:${BACKEND_PORT:-4567}
-      - VITE_PORT=${FRONTEND_PORT:-5173}
+      - VITE_API_URL=http://localhost:${BACKEND_PORT:-4511}
+      - VITE_PORT=${FRONTEND_PORT:-4510}
     depends_on:
       - backend
     restart: unless-stopped

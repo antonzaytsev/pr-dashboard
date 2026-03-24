@@ -3,7 +3,7 @@ import type { ColumnKey } from "../types";
 import { ALL_COLUMNS } from "../types";
 import { useColumnVisibility } from "../hooks/useColumnVisibility";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4567";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4511";
 
 export function SettingsPage() {
   const { visibleColumns, toggleColumn } = useColumnVisibility();

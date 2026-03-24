@@ -9,6 +9,6 @@ RUN bundle install
 
 COPY . .
 
-EXPOSE 4567
+EXPOSE 4511
 
 CMD ["rerun", "--force-polling", "--no-notify", "--", "ruby", "app.rb"]

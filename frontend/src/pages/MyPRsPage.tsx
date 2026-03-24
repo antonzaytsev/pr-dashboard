@@ -3,7 +3,7 @@ import type { PRData } from "../types";
 import { PRSection } from "../components/PRSection";
 import { useColumnVisibility } from "../hooks/useColumnVisibility";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4567";
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4511";
 
 export function MyPRsPage() {
   const [data, setData] = useState<PRData | null>(null);
