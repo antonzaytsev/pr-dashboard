@@ -11,20 +11,27 @@ export function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
 
-  const fetchCurrentWindow = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/api/prs`);
-      if (!res.ok) return;
-      const json = await res.json();
-      setDaysWindow(json.days_window);
-    } catch {
-      /* ignore */
-    }
+  const syncToBackend = useCallback(async (days: number) => {
+    await fetch(`${API_URL}/api/days_window`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ days_window: days }),
+    });
   }, []);
 
   useEffect(() => {
-    fetchCurrentWindow();
-  }, [fetchCurrentWindow]);
+    const stored = localStorage.getItem("days_window");
+    if (stored) {
+      const days = Number(stored);
+      setDaysWindow(days);
+      syncToBackend(days).catch(() => {});
+    } else {
+      fetch(`${API_URL}/api/prs`)
+        .then((res) => res.ok ? res.json() : null)
+        .then((json) => { if (json) setDaysWindow(json.days_window); })
+        .catch(() => {});
+    }
+  }, [syncToBackend]);
 
   const saveDaysWindow = async (days: number) => {
     setSaving(true);
@@ -37,6 +44,7 @@ export function SettingsPage() {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setDaysWindow(days);
+      localStorage.setItem("days_window", String(days));
       setSavedMsg("Saved");
       setTimeout(() => setSavedMsg(null), 2000);
     } catch {
