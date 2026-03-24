@@ -229,14 +229,16 @@ def process_prs(raw_prs)
       next
     end
 
-    next unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
-
     section = if details[:my_approved] then 2
               elsif details[:requested_from_me] then 0
               elsif details[:needs_re_review] then 0
               elsif !details[:reviewed] then 1
               else 2
               end
+
+    if section != 1
+      next unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
+    end
 
     sections[section][:prs] << build_pr_hash(pr, details)
   end
