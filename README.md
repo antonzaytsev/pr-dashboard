@@ -7,7 +7,7 @@ A personal PR review dashboard that tracks open pull requests on a GitHub repo. 
 - **Need My Review** — PRs where you're requested or the author replied to your comments
 - **My PRs** — your PRs grouped by status: ready to merge, changes requested, waiting for review, approved, draft
 - **CI & Conflicts** — CI pass/fail/running status and merge conflict indicators per PR
-- **Configurable time window** — filter PRs by how recently they were updated (1–30 days)
+- **Configurable time window** — filter PRs by how recently they were updated (1–30 days), persisted in localStorage
 - **Column toggles** — show/hide columns to customize the view
 - **Auto-refresh** — backend polls GitHub on an interval and caches results
 
@@ -35,8 +35,8 @@ Edit `.env` and set your values:
 ```
 GITHUB_TOKEN=ghp_your_token_here
 POLL_INTERVAL=300
-BACKEND_PORT=4567
-FRONTEND_PORT=5173
+BACKEND_PORT=4511
+FRONTEND_PORT=4510
 ```
 
 ### 2. Configure the repo and user
