@@ -21,63 +21,101 @@ $cache_mutex = Mutex.new
 
 # --- GitHub API helpers ---
 
-def gh_graphql(query, variables = {})
-  uri = URI("https://api.github.com/graphql")
-  req = Net::HTTP::Post.new(uri)
+DETAIL_BATCH_SIZE = 15
+MAX_PARALLEL = 4
+
+GH_URI = URI("https://api.github.com/graphql").freeze
+
+DETAIL_FIELDS = <<~GQL.freeze
+  reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
+  reviews(first: 50) { nodes { author { login } state submittedAt } }
+  commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
+  reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
+  comments(first: 100) { nodes { author { login } } }
+GQL
+
+def with_gh_connection(&block)
+  Net::HTTP.start(GH_URI.hostname, GH_URI.port, use_ssl: true, read_timeout: 30, open_timeout: 10, &block)
+end
+
+def gh_request(http, query)
+  req = Net::HTTP::Post.new(GH_URI)
   req["Authorization"] = "Bearer #{GH_TOKEN}"
   req["Content-Type"] = "application/json"
-  req.body = { query: query, variables: variables }.to_json
-
-  res = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true) { |http| http.request(req) }
-  JSON.parse(res.body)
+  req.body = { query: query }.to_json
+  JSON.parse(http.request(req).body)
 end
 
 def fetch_prs
   owner, name = REPO.split("/")
-  all_prs = []
-  cursor = nil
+  cutoff = Time.now - ($days_window * 86400)
 
-  loop do
-    after_clause = cursor ? ", after: \"#{cursor}\"" : ""
-    query = <<~GQL
-      query {
-        repository(owner: "#{owner}", name: "#{name}") {
-          pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
-            pageInfo { hasNextPage endCursor }
-            nodes {
-              number
-              title
-              isDraft
-              createdAt
-              updatedAt
-              author { login }
-              reviewDecision
-              reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-              reviews(first: 50) { nodes { author { login } state submittedAt } }
-              commits(last: 1) { nodes { commit { committedDate } } }
-              reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
-              comments(first: 100) { nodes { author { login } } }
+  # Pass 1: lightweight list (sequential pagination, persistent connection)
+  all_prs = []
+  with_gh_connection do |http|
+    cursor = nil
+    loop do
+      after_clause = cursor ? %Q(, after: "#{cursor}") : ""
+      query = <<~GQL
+        query {
+          repository(owner: "#{owner}", name: "#{name}") {
+            pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
+              pageInfo { hasNextPage endCursor }
+              nodes {
+                number title isDraft mergeable createdAt updatedAt
+                author { login }
+                reviewDecision
+              }
             }
           }
         }
-      }
-    GQL
+      GQL
 
-    data = gh_graphql(query)
-    pr_nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
-    page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
+      data = gh_request(http, query)
+      nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
+      page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
+      all_prs.concat(nodes)
 
-    all_prs.concat(pr_nodes)
-
-    cutoff = Time.now - ($days_window * 86400)
-    last_updated = pr_nodes.last && Time.parse(pr_nodes.last["updatedAt"])
-    break if last_updated && last_updated < cutoff
-    break unless page_info&.dig("hasNextPage")
-
-    cursor = page_info["endCursor"]
+      last_updated = nodes.last && Time.parse(nodes.last["updatedAt"])
+      break if last_updated && last_updated < cutoff
+      break unless page_info&.dig("hasNextPage")
+      cursor = page_info["endCursor"]
+    end
   end
 
-  all_prs
+  relevant = all_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
+  $stderr.puts "[#{Time.now}] Pass 1 done: #{all_prs.size} fetched, #{relevant.size} within window"
+
+  # Pass 2: fetch review/comment details in parallel batches
+  batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
+  details = {}
+  mutex = Mutex.new
+
+  batches.each_slice(MAX_PARALLEL) do |chunk|
+    threads = chunk.map do |batch|
+      Thread.new do
+        with_gh_connection do |http|
+          aliases = batch.map { |n|
+            "pr_#{n}: pullRequest(number: #{n}) {\n#{DETAIL_FIELDS}}"
+          }.join("\n")
+          query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
+          data = gh_request(http, query)
+          repo = data.dig("data", "repository") || {}
+          batch.each do |n|
+            d = repo["pr_#{n}"]
+            mutex.synchronize { details[n] = d } if d
+          end
+        end
+      rescue StandardError => e
+        $stderr.puts "[#{Time.now}] Detail batch error (#{batch.first}..#{batch.last}): #{e.message}"
+      end
+    end
+    threads.each(&:join)
+  end
+
+  relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
+  $stderr.puts "[#{Time.now}] Pass 2 done: details fetched for #{details.size} PRs in #{batches.size} batches"
+  relevant
 end
 
 def extract_pr_details(pr)
@@ -142,11 +180,20 @@ def build_pr_hash(pr, details)
              "review_required"
            end
 
+  ci_rollup = pr.dig("commits", "nodes", 0, "commit", "statusCheckRollup", "state")
+  ci_status = case ci_rollup
+              when "SUCCESS" then "pass"
+              when "PENDING", "EXPECTED" then "in_progress"
+              when "FAILURE", "ERROR" then "failed"
+              else "unknown"
+              end
+
   {
     number: pr["number"],
     title: pr["title"],
     author: pr.dig("author", "login"),
     status: status,
+    has_conflicts: pr["mergeable"] == "CONFLICTING",
     requested_from: details[:requested],
     is_me_requested: details[:requested_from_me],
     approved_by: approved_by,
@@ -156,6 +203,7 @@ def build_pr_hash(pr, details)
     updated_at: pr["updatedAt"],
     my_reviewed_at: details[:my_reviewed_at],
     needs_re_review: !!details[:needs_re_review],
+    ci_status: ci_status,
     url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
   }
 end
@@ -203,6 +251,7 @@ def process_my_prs(raw_prs)
   cutoff = Time.now - ($days_window * 86400)
 
   sections = [
+    { id: 0, title: "Ready to merge", color: "#a371f7", prs: [] },
     { id: 1, title: "Changes requested", color: "#f85149", prs: [] },
     { id: 2, title: "Waiting for review", color: "#d29922", prs: [] },
     { id: 3, title: "Approved", color: "#3fb950", prs: [] },
@@ -216,17 +265,23 @@ def process_my_prs(raw_prs)
     details = extract_pr_details(pr)
 
     if pr["isDraft"]
-      sections[3][:prs] << build_pr_hash(pr, details)
+      sections[4][:prs] << build_pr_hash(pr, details)
       next
     end
 
-    section = case pr["reviewDecision"]
-              when "CHANGES_REQUESTED" then 0
-              when "APPROVED" then 2
-              else 1
-              end
+    pr_hash = build_pr_hash(pr, details)
 
-    sections[section][:prs] << build_pr_hash(pr, details)
+    if pr["reviewDecision"] == "CHANGES_REQUESTED"
+      sections[1][:prs] << pr_hash
+    elsif pr["reviewDecision"] == "APPROVED"
+      if pr_hash[:approved_by].any? && pr_hash[:changes_requested_by].empty? && pr_hash[:ci_status] == "pass" && !pr_hash[:has_conflicts]
+        sections[0][:prs] << pr_hash
+      else
+        sections[3][:prs] << pr_hash
+      end
+    else
+      sections[2][:prs] << pr_hash
+    end
   end
 
   sections.each { |s| s[:prs].sort_by! { |p| -p[:number] } }

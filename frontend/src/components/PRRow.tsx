@@ -62,6 +62,13 @@ export function PRRow({ pr, visibleColumns }: Props) {
           {pr.title}
         </td>
       )}
+      {show("conflicts") && (
+        <td>
+          {pr.has_conflicts && (
+            <span className="badge conflicts">Yes</span>
+          )}
+        </td>
+      )}
       {show("requested") && (
         <td className="requested">
           {pr.requested_from.length === 0
@@ -96,6 +103,30 @@ export function PRRow({ pr, visibleColumns }: Props) {
           {pr.commented_by.length === 0
             ? "—"
             : pr.commented_by.join(", ")}
+        </td>
+      )}
+      {show("ci") && (
+        <td>
+          <span
+            className={`badge ci-${pr.ci_status}`}
+            title={
+              pr.ci_status === "pass"
+                ? "CI passed"
+                : pr.ci_status === "in_progress"
+                  ? "CI running"
+                  : pr.ci_status === "failed"
+                    ? "CI failed"
+                    : "No CI status"
+            }
+          >
+            {pr.ci_status === "pass"
+              ? "Pass"
+              : pr.ci_status === "in_progress"
+                ? "Running"
+                : pr.ci_status === "failed"
+                  ? "Failed"
+                  : "—"}
+          </span>
         </td>
       )}
       {show("created") && (

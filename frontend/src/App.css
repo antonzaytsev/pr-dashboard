@@ -139,14 +139,16 @@ table {
 
 .col-pr { width: 4%; }
 .col-author { width: 7%; }
-.col-status { width: 10%; }
-.col-title { width: 22%; }
-.col-requested { width: 10%; }
-.col-approved { width: 9%; }
-.col-changes { width: 9%; }
-.col-commented { width: 9%; }
+.col-status { width: 8%; }
+.col-ci { width: 5%; }
+.col-title { width: 19%; }
+.col-conflicts { width: 5%; }
+.col-requested { width: 9%; }
+.col-approved { width: 8%; }
+.col-changes { width: 8%; }
+.col-commented { width: 8%; }
 .col-created { width: 7%; }
-.col-my-review { width: 7%; }
+.col-my-review { width: 6%; }
 .col-updated { width: 6%; }
 
 th {
@@ -209,6 +211,35 @@ a:hover {
 .badge.draft {
   background: rgba(139, 148, 158, 0.2);
   color: #8b949e;
+}
+
+.badge.ci-pass {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.badge.ci-in_progress {
+  background: rgba(210, 153, 34, 0.2);
+  color: #d29922;
+}
+
+.badge.ci-failed {
+  background: rgba(218, 54, 51, 0.2);
+  color: #f85149;
+}
+
+.badge.ci-unknown {
+  background: rgba(139, 148, 158, 0.15);
+  color: #8b949e;
+}
+
+.badge.conflicts {
+  background: rgba(218, 54, 51, 0.2);
+  color: #f85149;
+  margin-right: 6px;
+  font-size: 10px;
+  padding: 1px 6px;
+  vertical-align: middle;
 }
 
 .badge.re-review {

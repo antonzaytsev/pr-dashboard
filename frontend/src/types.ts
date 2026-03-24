@@ -3,6 +3,7 @@ export interface PR {
   title: string;
   author: string;
   status: "changes_requested" | "review_required" | "approved" | "draft";
+  has_conflicts: boolean;
   requested_from: string[];
   is_me_requested: boolean;
   approved_by: string[];
@@ -12,6 +13,7 @@ export interface PR {
   updated_at: string;
   my_reviewed_at: string | null;
   needs_re_review: boolean;
+  ci_status: "pass" | "in_progress" | "failed" | "unknown";
   url: string;
 }
 
@@ -20,11 +22,13 @@ export type ColumnKey =
   | "author"
   | "status"
   | "title"
+  | "conflicts"
   | "requested"
   | "approved"
   | "changes"
   | "commented"
   | "created"
+  | "ci"
   | "myReview"
   | "updated";
 
@@ -40,10 +44,12 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: "author", label: "Author", className: "col-author", hideable: true },
   { key: "status", label: "Status", className: "col-status", hideable: true },
   { key: "title", label: "Title", className: "col-title", hideable: false },
+  { key: "conflicts", label: "Conflicts", className: "col-conflicts", hideable: true },
   { key: "requested", label: "Requested From", className: "col-requested", hideable: true },
   { key: "approved", label: "Approved By", className: "col-approved", hideable: true },
   { key: "changes", label: "Changes Req.", className: "col-changes", hideable: true },
   { key: "commented", label: "Commented", className: "col-commented", hideable: true },
+  { key: "ci", label: "CI", className: "col-ci", hideable: true },
   { key: "created", label: "Created", className: "col-created", hideable: true },
   { key: "myReview", label: "My Review", className: "col-my-review", hideable: true },
   { key: "updated", label: "Updated", className: "col-updated", hideable: true },
