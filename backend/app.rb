@@ -383,7 +383,7 @@ get "/api/pr/:number" do
                 committedDate
                 statusCheckRollup {
                   state
-                  contexts(first: 50) {
+                  contexts(first: 100) {
                     nodes {
                       ... on CheckRun { name conclusion status detailsUrl }
                       ... on StatusContext { context state description targetUrl }

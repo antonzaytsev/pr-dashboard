@@ -820,4 +820,31 @@ a:hover {
   font-size: 13px;
   line-height: 1.5;
   color: #c9d1d9;
+  overflow: hidden;
+}
+
+/* Markdown: overflow and HTML content */
+.markdown-body {
+  overflow-wrap: break-word;
+  word-break: break-word;
+  overflow: hidden;
+}
+
+.markdown-body details {
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin: 0 0 12px;
+}
+
+.markdown-body details summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: #f0f6fc;
+}
+
+.markdown-body picture,
+.markdown-body div {
+  max-width: 100%;
+  overflow: hidden;
 }

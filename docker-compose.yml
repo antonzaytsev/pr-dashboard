@@ -1,7 +1,7 @@
 services:
   backend:
     build: ./backend
-    command: sh -c "bundle install && rerun --force-polling --no-notify -- ruby app.rb"
+    command: sh -c "bundle install && bundle exec rerun --force-polling --no-notify --background -- ruby app.rb"
     ports:
       - "${BACKEND_PORT:-4511}:${BACKEND_PORT:-4511}"
     volumes:

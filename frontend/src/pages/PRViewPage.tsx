@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import rehypeRaw from "rehype-raw";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4511";
 
@@ -104,15 +105,18 @@ export function PRViewPage() {
   if (error) return <div className="error">Error: {error}</div>;
   if (!pr) return <div className="error">PR not found</div>;
 
-  const ciPassed = pr.ci_checks.filter((c) => c.conclusion === "success").length;
-
-  const ciCheckOrder = (check: CICheck): number => {
-    if (check.conclusion === "failure") return 0;
-    if (check.status === "in_progress" || (!check.conclusion && check.status !== "completed")) return 1;
-    if (check.conclusion === "success") return 2;
-    return 3;
+  const ciGroup = (check: CICheck): "failed" | "running" | "passed" | "other" => {
+    if (check.conclusion === "failure") return "failed";
+    if (check.conclusion === "success") return "passed";
+    if (check.status === "in_progress" || check.status === "queued" || (!check.conclusion && check.status !== "completed")) return "running";
+    return "other";
   };
-  const sortedChecks = [...pr.ci_checks].sort((a, b) => ciCheckOrder(a) - ciCheckOrder(b));
+  const groupOrder = { failed: 0, running: 1, passed: 2, other: 3 };
+  const sortedChecks = [...pr.ci_checks].sort((a, b) => groupOrder[ciGroup(a)] - groupOrder[ciGroup(b)]);
+  const ciFailed = pr.ci_checks.filter((c) => ciGroup(c) === "failed").length;
+  const ciRunning = pr.ci_checks.filter((c) => ciGroup(c) === "running").length;
+  const ciPassed = pr.ci_checks.filter((c) => ciGroup(c) === "passed").length;
+  const ciOther = pr.ci_checks.filter((c) => ciGroup(c) === "other").length;
 
   return (
     <div className="pr-view">
@@ -146,7 +150,7 @@ export function PRViewPage() {
             <div className="pr-view-card">
               <h3>Description</h3>
               <div className="pr-view-body markdown-body">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                   {pr.body}
                 </ReactMarkdown>
               </div>
@@ -190,7 +194,7 @@ export function PRViewPage() {
                           )}
                         </div>
                         <div className="pr-view-comment-body markdown-body">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
                             {comment.body}
                           </ReactMarkdown>
                         </div>
@@ -279,7 +283,12 @@ export function PRViewPage() {
             <h3>
               CI Checks{" "}
               <span className="count">
-                ({ciPassed}/{pr.ci_checks.length} passed)
+                ({[
+                  ciFailed > 0 && `${ciFailed} failed`,
+                  ciRunning > 0 && `${ciRunning} in progress`,
+                  ciPassed > 0 && `${ciPassed} passed`,
+                  ciOther > 0 && `${ciOther} skipped`,
+                ].filter(Boolean).join(", ")})
               </span>
             </h3>
             {pr.ci_checks.length === 0 ? (
@@ -290,20 +299,10 @@ export function PRViewPage() {
                   <div key={i} className="pr-view-check">
                     <span
                       className={`pr-view-check-icon ${
-                        check.conclusion === "success"
-                          ? "check-pass"
-                          : check.conclusion === "failure"
-                            ? "check-fail"
-                            : check.status === "in_progress"
-                              ? "check-running"
-                              : "check-pending"
+                        { failed: "check-fail", running: "check-running", passed: "check-pass", other: "check-pending" }[ciGroup(check)]
                       }`}
                     >
-                      {check.conclusion === "success"
-                        ? "+"
-                        : check.conclusion === "failure"
-                          ? "x"
-                          : "-"}
+                      {{ failed: "x", running: "~", passed: "+", other: "-" }[ciGroup(check)]}
                     </span>
                     {check.url ? (
                       <a
