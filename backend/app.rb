@@ -362,6 +362,131 @@ post "/api/days_window" do
   data.to_json
 end
 
+get "/api/pr/:number" do
+  pr_number = Integer(params[:number])
+  owner, name = REPO.split("/")
+
+  query = <<~GQL
+    query {
+      repository(owner: "#{owner}", name: "#{name}") {
+        pullRequest(number: #{pr_number}) {
+          number title body isDraft mergeable createdAt updatedAt
+          author { login }
+          reviewDecision
+          additions deletions changedFiles
+          baseRefName headRefName
+          reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
+          reviews(first: 50) { nodes { author { login } state submittedAt } }
+          commits(last: 1) {
+            nodes {
+              commit {
+                committedDate
+                statusCheckRollup {
+                  state
+                  contexts(first: 50) {
+                    nodes {
+                      ... on CheckRun { name conclusion status detailsUrl }
+                      ... on StatusContext { context state description targetUrl }
+                    }
+                  }
+                }
+              }
+            }
+          }
+          reviewThreads(first: 100) {
+            nodes {
+              isResolved
+              path
+              line
+              comments(first: 30) {
+                nodes {
+                  author { login }
+                  body
+                  createdAt
+                  url
+                }
+              }
+            }
+          }
+          comments(first: 100) { nodes { author { login } } }
+        }
+      }
+    }
+  GQL
+
+  data = with_gh_connection { |http| gh_request(http, query) }
+  pr = data.dig("data", "repository", "pullRequest")
+  halt 404, { error: "PR not found" }.to_json unless pr
+
+  details = extract_pr_details(pr)
+
+  approved_by = details[:latest_reviews].select { |_, r| r["state"] == "APPROVED" }.keys.sort
+  changes_requested_by = details[:latest_reviews].select { |_, r| r["state"] == "CHANGES_REQUESTED" }.keys.sort
+
+  status = if pr["isDraft"] then "draft"
+           elsif pr["reviewDecision"] == "APPROVED" then "approved"
+           elsif pr["reviewDecision"] == "CHANGES_REQUESTED" then "changes_requested"
+           else "review_required"
+           end
+
+  ci_rollup = pr.dig("commits", "nodes", 0, "commit", "statusCheckRollup", "state")
+  ci_status = case ci_rollup
+              when "SUCCESS" then "pass"
+              when "PENDING", "EXPECTED" then "in_progress"
+              when "FAILURE", "ERROR" then "failed"
+              else "unknown"
+              end
+
+  ci_checks = (pr.dig("commits", "nodes", 0, "commit", "statusCheckRollup", "contexts", "nodes") || []).map do |node|
+    if node["name"]
+      { name: node["name"], status: node["status"]&.downcase, conclusion: node["conclusion"]&.downcase, url: node["detailsUrl"] }
+    elsif node["context"]
+      conclusion = case node["state"]
+                   when "SUCCESS" then "success"
+                   when "PENDING", "EXPECTED" then nil
+                   when "FAILURE", "ERROR" then "failure"
+                   end
+      { name: node["context"], status: node["state"] == "PENDING" ? "in_progress" : "completed", conclusion: conclusion, url: node["targetUrl"] }
+    end
+  end.compact
+
+  unresolved_threads = (pr.dig("reviewThreads", "nodes") || []).select { |t| !t["isResolved"] }.map do |thread|
+    comments = (thread.dig("comments", "nodes") || []).map do |c|
+      { author: c.dig("author", "login"), body: c["body"], created_at: c["createdAt"], url: c["url"] }
+    end
+    { path: thread["path"], line: thread["line"], comments: comments }
+  end
+
+  content_type :json
+  {
+    number: pr["number"],
+    title: pr["title"],
+    body: pr["body"],
+    author: pr.dig("author", "login"),
+    status: status,
+    has_conflicts: pr["mergeable"] == "CONFLICTING",
+    requested_from: details[:requested],
+    is_me_requested: details[:requested_from_me],
+    approved_by: approved_by,
+    changes_requested_by: changes_requested_by,
+    commented_by: details[:commented_by],
+    created_at: pr["createdAt"],
+    updated_at: pr["updatedAt"],
+    my_reviewed_at: details[:my_reviewed_at],
+    needs_re_review: !!details[:needs_re_review],
+    ci_status: ci_status,
+    ci_checks: ci_checks,
+    unresolved_comments: details[:unresolved_comments],
+    unresolved_threads: unresolved_threads,
+    url: "https://github.com/#{REPO}/pull/#{pr["number"]}",
+    additions: pr["additions"],
+    deletions: pr["deletions"],
+    changed_files: pr["changedFiles"],
+    base_branch: pr["baseRefName"],
+    head_branch: pr["headRefName"],
+  }.to_json
+end
+
 get "/health" do
   content_type :json
   { status: "ok" }.to_json

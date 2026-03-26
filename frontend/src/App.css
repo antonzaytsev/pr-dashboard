@@ -446,3 +446,378 @@ a:hover {
   width: 15px;
   height: 15px;
 }
+
+/* PR View Page */
+.pr-view {
+  text-align: left;
+}
+
+.pr-view-back {
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.pr-view-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #21262d;
+}
+
+.pr-view-title-row h1 {
+  font-size: 24px;
+  line-height: 1.3;
+  margin-bottom: 8px;
+}
+
+.pr-view-number {
+  color: #8b949e;
+  font-weight: normal;
+}
+
+.pr-view-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #8b949e;
+  margin-bottom: 8px;
+}
+
+.pr-view-meta code {
+  background: #21262d;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: #58a6ff;
+}
+
+.pr-view-gh-link {
+  font-size: 13px;
+}
+
+.pr-view-grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.pr-view-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.pr-view-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pr-view-card {
+  background: #161b22;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.pr-view-card h3 {
+  color: #f0f6fc;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.pr-view-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+
+/* Markdown rendering */
+.markdown-body h1,
+.markdown-body h2,
+.markdown-body h3,
+.markdown-body h4,
+.markdown-body h5,
+.markdown-body h6 {
+  color: #f0f6fc;
+  margin: 16px 0 8px;
+  font-weight: 600;
+  line-height: 1.3;
+  border: none;
+  padding: 0;
+}
+
+.markdown-body h1 { font-size: 20px; }
+.markdown-body h2 { font-size: 17px; padding-bottom: 6px; border-bottom: 1px solid #21262d; margin: 20px 0 10px; }
+.markdown-body h3 { font-size: 15px; }
+.markdown-body h4 { font-size: 13px; }
+
+.markdown-body p {
+  margin: 0 0 12px;
+}
+
+.markdown-body p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-body ul,
+.markdown-body ol {
+  padding-left: 24px;
+  margin: 0 0 12px;
+}
+
+.markdown-body li {
+  margin: 2px 0;
+}
+
+.markdown-body li input[type="checkbox"] {
+  margin-right: 6px;
+  accent-color: #58a6ff;
+}
+
+.markdown-body code {
+  background: #21262d;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #c9d1d9;
+  display: inline;
+}
+
+.markdown-body pre {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0 0 12px;
+}
+
+.markdown-body pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.markdown-body blockquote {
+  border-left: 3px solid #30363d;
+  padding-left: 12px;
+  color: #8b949e;
+  margin: 0 0 12px;
+}
+
+.markdown-body a {
+  color: #58a6ff;
+}
+
+.markdown-body img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.markdown-body table {
+  border-collapse: collapse;
+  margin: 0 0 12px;
+  width: auto;
+}
+
+.markdown-body table th,
+.markdown-body table td {
+  border: 1px solid #30363d;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+.markdown-body table th {
+  background: #161b22;
+}
+
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #21262d;
+  margin: 16px 0;
+}
+
+.pr-view-empty {
+  color: #484f58;
+  font-size: 13px;
+}
+
+/* Reviewers */
+.pr-view-reviewer-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pr-view-reviewer-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.pr-view-reviewer-label {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.pr-view-reviewer-label.approved {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.pr-view-reviewer-label.changes-req {
+  background: rgba(218, 54, 51, 0.2);
+  color: #f85149;
+}
+
+.pr-view-reviewer-label.requested {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+}
+
+/* Stats */
+.pr-view-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pr-view-stat {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+.pr-view-stat-label {
+  color: #8b949e;
+}
+
+.pr-view-stat-value {
+  color: #c9d1d9;
+  font-weight: 500;
+}
+
+.pr-view-additions {
+  color: #3fb950;
+}
+
+.pr-view-deletions {
+  color: #f85149;
+}
+
+/* CI Checks */
+.pr-view-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pr-view-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.pr-view-check-icon {
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.check-pass {
+  background: rgba(63, 185, 80, 0.2);
+  color: #3fb950;
+}
+
+.check-fail {
+  background: rgba(218, 54, 51, 0.2);
+  color: #f85149;
+}
+
+.check-running {
+  background: rgba(210, 153, 34, 0.2);
+  color: #d29922;
+}
+
+.check-pending {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+}
+
+.pr-view-check-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Unresolved Threads */
+.pr-view-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.pr-view-thread {
+  border: 1px solid #21262d;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.pr-view-thread-file {
+  background: #0d1117;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  color: #8b949e;
+  border-bottom: 1px solid #21262d;
+}
+
+.pr-view-comment {
+  padding: 10px 12px;
+  border-bottom: 1px solid #21262d;
+}
+
+.pr-view-comment:last-child {
+  border-bottom: none;
+}
+
+.pr-view-comment-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #8b949e;
+  margin-bottom: 4px;
+}
+
+.pr-view-comment-header strong {
+  color: #c9d1d9;
+}
+
+.pr-view-comment-link {
+  font-size: 11px;
+}
+
+.pr-view-comment-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: #c9d1d9;
+}

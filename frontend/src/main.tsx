@@ -5,6 +5,7 @@ import App from "./App";
 import { ReviewPage } from "./pages/ReviewPage";
 import { MyPRsPage } from "./pages/MyPRsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { PRViewPage } from "./pages/PRViewPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -13,6 +14,7 @@ createRoot(document.getElementById("root")!).render(
         <Route element={<App />}>
           <Route index element={<ReviewPage />} />
           <Route path="my-prs" element={<MyPRsPage />} />
+          <Route path="pr/:number" element={<PRViewPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>

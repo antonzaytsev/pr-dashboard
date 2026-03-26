@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { PR, ColumnKey } from "../types";
 
 interface Props {
@@ -43,9 +44,9 @@ export function PRRow({ pr, visibleColumns }: Props) {
     <tr>
       {show("pr") && (
         <td className="pr-num">
-          <a href={pr.url} target="_blank" rel="noopener noreferrer">
+          <Link to={`/pr/${pr.number}`}>
             #{pr.number}
-          </a>
+          </Link>
         </td>
       )}
       {show("author") && <td>{pr.author}</td>}
