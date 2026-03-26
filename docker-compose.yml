@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    command: sh -c "bundle install && rerun --force-polling --no-notify -- ruby app.rb"
     ports:
       - "${BACKEND_PORT:-4511}:${BACKEND_PORT:-4511}"
     volumes:
@@ -8,17 +9,17 @@ services:
     environment:
       - GITHUB_TOKEN=${GITHUB_TOKEN}
       - POLL_INTERVAL=${POLL_INTERVAL:-300}
-
       - PORT=${BACKEND_PORT:-4511}
+      - BUNDLE_PATH=/app/vendor/bundle
     restart: unless-stopped
 
   frontend:
     build: ./frontend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
     ports:
       - "${FRONTEND_PORT:-4510}:${FRONTEND_PORT:-4510}"
     volumes:
       - ./frontend:/app
-      - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:${BACKEND_PORT:-4511}
       - VITE_PORT=${FRONTEND_PORT:-4510}
