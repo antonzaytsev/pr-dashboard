@@ -24,7 +24,7 @@ export function PRSection({ section, visibleColumns }: Props) {
           <thead>
             <tr>
               {columns.map((col) => (
-                <th key={col.key} className={col.className}>
+                <th key={col.key} className={col.className} title={col.tooltip}>
                   {col.label}
                 </th>
               ))}

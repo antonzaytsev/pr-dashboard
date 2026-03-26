@@ -129,6 +129,11 @@ export function PRRow({ pr, visibleColumns }: Props) {
           </span>
         </td>
       )}
+      {show("unresolvedComments") && (
+        <td className="unresolved">
+          {pr.unresolved_comments > 0 ? pr.unresolved_comments : "—"}
+        </td>
+      )}
       {show("created") && (
         <td className="created" title={formatDateTime(pr.created_at)}>
           {timeAgo(pr.created_at)}

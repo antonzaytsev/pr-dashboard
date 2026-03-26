@@ -30,7 +30,7 @@ DETAIL_FIELDS = <<~GQL.freeze
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
   reviews(first: 50) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
-  reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
+  reviewThreads(first: 50) { nodes { isResolved comments(first: 30) { nodes { author { login } createdAt } } } }
   comments(first: 100) { nodes { author { login } } }
 GQL
 
@@ -142,8 +142,8 @@ def extract_pr_details(pr)
     .map { |r| r["submittedAt"] }
     .max
 
-  my_latest_review_state = latest_reviews.select { |k, _| MY_ALIASES.include?(k) }.values.first&.dig("state")
-  my_approved = my_latest_review_state == "APPROVED"
+  my_approved = (pr.dig("reviews", "nodes") || [])
+    .any? { |r| MY_ALIASES.include?(r.dig("author", "login")) && r["state"] == "APPROVED" }
 
   author_replied = false
   if reviewed && !my_approved && my_reviewed_at
@@ -161,9 +161,12 @@ def extract_pr_details(pr)
 
   needs_re_review = reviewed && !my_approved && author_replied
 
+  unresolved_comments = (pr.dig("reviewThreads", "nodes") || []).count { |t| !t["isResolved"] }
+
   { requested: requested, requested_from_me: requested_from_me,
     latest_reviews: latest_reviews, commented_by: commented_by, reviewed: reviewed,
-    my_reviewed_at: my_reviewed_at, my_approved: my_approved, needs_re_review: needs_re_review }
+    my_reviewed_at: my_reviewed_at, my_approved: my_approved, needs_re_review: needs_re_review,
+    unresolved_comments: unresolved_comments }
 end
 
 def build_pr_hash(pr, details)
@@ -204,6 +207,7 @@ def build_pr_hash(pr, details)
     my_reviewed_at: details[:my_reviewed_at],
     needs_re_review: !!details[:needs_re_review],
     ci_status: ci_status,
+    unresolved_comments: details[:unresolved_comments],
     url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
   }
 end
