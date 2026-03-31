@@ -173,12 +173,14 @@ def extract_pr_details(pr)
 
   needs_re_review = reviewed && !my_approved && author_replied
 
-  unresolved_comments = (pr.dig("reviewThreads", "nodes") || []).count { |t| !t["isResolved"] }
+  review_threads = pr.dig("reviewThreads", "nodes") || []
+  unresolved_comments = review_threads.count { |t| !t["isResolved"] }
+  total_review_threads = review_threads.size
 
   { requested: requested, requested_from_me: requested_from_me,
     latest_reviews: latest_reviews, commented_by: commented_by, reviewed: reviewed,
     my_reviewed_at: my_reviewed_at, my_approved: my_approved, needs_re_review: needs_re_review,
-    unresolved_comments: unresolved_comments }
+    unresolved_comments: unresolved_comments, total_review_threads: total_review_threads }
 end
 
 def build_pr_hash(pr, details)
@@ -220,6 +222,7 @@ def build_pr_hash(pr, details)
     needs_re_review: !!details[:needs_re_review],
     ci_status: ci_status,
     unresolved_comments: details[:unresolved_comments],
+    total_review_threads: details[:total_review_threads],
     repo: pr["_repo"],
     url: "https://github.com/#{pr["_repo"]}/pull/#{pr["number"]}"
   }
@@ -491,6 +494,7 @@ get "/api/pr/:number" do
     ci_status: ci_status,
     ci_checks: ci_checks,
     unresolved_comments: details[:unresolved_comments],
+    total_review_threads: details[:total_review_threads],
     unresolved_threads: unresolved_threads,
     url: "https://github.com/#{repo_full}/pull/#{pr["number"]}",
     additions: pr["additions"],

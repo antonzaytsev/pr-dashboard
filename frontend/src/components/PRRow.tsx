@@ -23,22 +23,12 @@ function formatDateTime(iso: string): string {
 export function PRRow({ pr, visibleColumns }: Props) {
   const show = (key: ColumnKey) => visibleColumns.has(key);
 
-  const statusClass =
-    pr.status === "draft"
-      ? "badge draft"
-      : pr.status === "approved"
-        ? "badge approved"
-        : pr.status === "changes_requested"
-          ? "badge changes"
-          : "badge review";
-  const statusLabel =
-    pr.status === "draft"
-      ? "Draft"
-      : pr.status === "approved"
-        ? "Approved"
-        : pr.status === "changes_requested"
-          ? "Changes Requested"
-          : "Review Required";
+  const approvalCount = pr.approved_by.length;
+  const changesCount = pr.changes_requested_by.length;
+  const commentTotal = pr.total_review_threads;
+  const commentUnresolved = pr.unresolved_comments;
+  const hasConflicts = pr.has_conflicts;
+  const ci = pr.ci_status;
 
   return (
     <tr>
@@ -53,11 +43,6 @@ export function PRRow({ pr, visibleColumns }: Props) {
         <td className="repo">{pr.repo ? pr.repo.split("/")[1] : ""}</td>
       )}
       {show("author") && <td>{pr.author}</td>}
-      {show("status") && (
-        <td>
-          <span className={statusClass}>{statusLabel}</span>
-        </td>
-      )}
       {show("title") && (
         <td className="title-cell">
           {pr.needs_re_review && (
@@ -66,76 +51,16 @@ export function PRRow({ pr, visibleColumns }: Props) {
           {pr.title}
         </td>
       )}
-      {show("conflicts") && (
-        <td>
-          {pr.has_conflicts && (
-            <span className="badge conflicts">Yes</span>
-          )}
-        </td>
-      )}
-      {show("requested") && (
-        <td className="requested">
-          {pr.requested_from.length === 0
-            ? "—"
-            : pr.requested_from.map((r, i) => (
-                <span key={r}>
-                  {i > 0 && ", "}
-                  {pr.is_me_requested &&
-                  (r === "antonzaytsev" || r === "zaytsev-anton") ? (
-                    <strong>{r}</strong>
-                  ) : (
-                    r
-                  )}
-                </span>
-              ))}
-        </td>
-      )}
-      {show("approved") && (
-        <td className="approved">
-          {pr.approved_by.length === 0 ? "—" : pr.approved_by.join(", ")}
-        </td>
-      )}
-      {show("changes") && (
-        <td className="changes-req">
-          {pr.changes_requested_by.length === 0
-            ? "—"
-            : pr.changes_requested_by.join(", ")}
-        </td>
-      )}
-      {show("commented") && (
-        <td className="commented">
-          {pr.commented_by.length === 0
-            ? "—"
-            : pr.commented_by.join(", ")}
-        </td>
-      )}
-      {show("ci") && (
-        <td>
-          <span
-            className={`badge ci-${pr.ci_status}`}
-            title={
-              pr.ci_status === "pass"
-                ? "CI passed"
-                : pr.ci_status === "in_progress"
-                  ? "CI running"
-                  : pr.ci_status === "failed"
-                    ? "CI failed"
-                    : "No CI status"
-            }
-          >
-            {pr.ci_status === "pass"
-              ? "Pass"
-              : pr.ci_status === "in_progress"
-                ? "Running"
-                : pr.ci_status === "failed"
-                  ? "Failed"
-                  : "—"}
-          </span>
-        </td>
-      )}
-      {show("unresolvedComments") && (
-        <td className="unresolved">
-          {pr.unresolved_comments > 0 ? pr.unresolved_comments : "—"}
+      {show("status") && (
+        <td className="status-icons">
+          <span className={`si-icon ${approvalCount > 0 ? "si-approved-active" : "si-dim"}`} title={approvalCount > 0 ? `Approved by: ${pr.approved_by.join(", ")}` : "No approvals"}>✓</span>
+          <span className={`si-val ${approvalCount > 0 ? "si-approved-active" : "si-dim"}`}>{approvalCount >= 2 ? approvalCount : ""}</span>
+          <span className={`si-icon ${changesCount > 0 ? "si-changes-active" : "si-dim"}`} title={changesCount > 0 ? `Changes requested by: ${pr.changes_requested_by.join(", ")}` : "No changes requested"}>✗</span>
+          <span className={`si-val ${changesCount > 0 ? "si-changes-active" : "si-dim"}`}>{changesCount >= 2 ? changesCount : ""}</span>
+          <span className={`si-icon ${commentTotal > 0 ? (commentUnresolved > 0 ? "si-comments-unresolved" : "si-comments-resolved") : "si-dim"}`} title={commentTotal > 0 ? `${commentUnresolved} unresolved / ${commentTotal} threads` : "No review threads"}>💬</span>
+          <span className={`si-val ${commentTotal > 0 ? (commentUnresolved > 0 ? "si-comments-unresolved" : "si-comments-resolved") : "si-dim"}`}>{commentTotal > 0 ? `${commentUnresolved}/${commentTotal}` : ""}</span>
+          <span className={`si-icon ${hasConflicts ? "si-conflicts-active" : "si-dim"}`} title={hasConflicts ? "Has merge conflicts" : "No conflicts"}>⚡</span>
+          <span className={`si-icon ${ci === "pass" ? "si-ci-pass" : ci === "failed" ? "si-ci-fail" : ci === "in_progress" ? "si-ci-running" : "si-dim"}`} title={ci === "pass" ? "CI passed" : ci === "failed" ? "CI failed" : ci === "in_progress" ? "CI running" : "No CI"}>{ci === "pass" ? "●" : ci === "failed" ? "●" : ci === "in_progress" ? "◐" : "●"}</span>
         </td>
       )}
       {show("created") && (
