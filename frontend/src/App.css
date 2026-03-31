@@ -137,11 +137,11 @@ table {
   table-layout: fixed;
 }
 
-.col-pr { width: 5%; }
+.col-pr { width: 7%; }
 .col-repo { width: 9%; }
 .col-author { width: 9%; }
 .col-status { width: 18%; }
-.col-title { width: 30%; }
+.col-title { width: 28%; }
 .col-created { width: 7%; }
 .col-my-review { width: 7%; }
 .col-updated { width: 7%; }
@@ -153,6 +153,23 @@ th {
   font-weight: 600;
   border-bottom: 1px solid #21262d;
   white-space: nowrap;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  color: #c9d1d9;
+}
+
+th.sort-active {
+  color: #58a6ff;
+}
+
+.sort-arrow {
+  font-size: 0.7em;
 }
 
 td {
@@ -179,6 +196,32 @@ a:hover {
 .pr-num {
   font-weight: 600;
   white-space: nowrap;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.copy-link-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 0 0 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  vertical-align: middle;
+}
+
+tr:hover .copy-link-btn {
+  opacity: 0.5;
+}
+
+.copy-link-btn:hover {
+  opacity: 1 !important;
+}
+
+.copy-link-btn.copied {
+  opacity: 1 !important;
+  color: #3fb950;
 }
 
 .badge {
