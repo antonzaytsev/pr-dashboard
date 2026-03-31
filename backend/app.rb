@@ -378,10 +378,11 @@ post "/api/days_window" do
   data.to_json
 end
 
-get "/api/pr/:number" do
+get "/api/pr/:owner/:name/:number" do
   pr_number = Integer(params[:number])
-  repo_full = params[:repo] || $enabled_repos.first || AVAILABLE_REPOS.keys.first
-  owner, name = repo_full.split("/")
+  owner = params[:owner]
+  name = params[:name]
+  repo_full = "#{owner}/#{name}"
 
   query = <<~GQL
     query {

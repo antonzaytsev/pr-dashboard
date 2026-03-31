@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useSearchParams, Link } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
@@ -80,9 +80,8 @@ function statusClass(status: PRDetail["status"]): string {
 }
 
 export function PRViewPage() {
-  const { number } = useParams<{ number: string }>();
-  const [searchParams] = useSearchParams();
-  const repo = searchParams.get("repo") || "";
+  const { owner, repo, number } = useParams<{ owner: string; repo: string; number: string }>();
+  const repoFull = `${owner}/${repo}`;
   const [pr, setPr] = useState<PRDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -90,8 +89,7 @@ export function PRViewPage() {
   useEffect(() => {
     async function fetchPR() {
       try {
-        const repoParam = repo ? `?repo=${encodeURIComponent(repo)}` : "";
-        const res = await fetch(`${API_URL}/api/pr/${number}${repoParam}`);
+        const res = await fetch(`${API_URL}/api/pr/${owner}/${repo}/${number}`);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setPr(await res.json());
         setError(null);
@@ -102,7 +100,7 @@ export function PRViewPage() {
       }
     }
     fetchPR();
-  }, [number, repo]);
+  }, [owner, repo, number]);
 
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error">Error: {error}</div>;

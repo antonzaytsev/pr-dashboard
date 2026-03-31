@@ -34,7 +34,7 @@ export function PRRow({ pr, visibleColumns }: Props) {
     <tr>
       {show("pr") && (
         <td className="pr-num">
-          <Link to={`/pr/${pr.number}?repo=${encodeURIComponent(pr.repo)}`}>
+          <Link to={`/pr/${pr.repo}/${pr.number}`}>
             #{pr.number}
           </Link>
         </td>

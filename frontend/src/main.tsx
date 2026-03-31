@@ -14,7 +14,7 @@ createRoot(document.getElementById("root")!).render(
         <Route element={<App />}>
           <Route index element={<ReviewPage />} />
           <Route path="my-prs" element={<MyPRsPage />} />
-          <Route path="pr/:number" element={<PRViewPage />} />
+          <Route path="pr/:owner/:repo/:number" element={<PRViewPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>
       </Routes>
