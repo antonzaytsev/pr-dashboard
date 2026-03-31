@@ -29,8 +29,8 @@ interface Props {
 
 export function PRSection({ section, visibleColumns }: Props) {
   const columns = ALL_COLUMNS.filter((c) => visibleColumns.has(c.key));
-  const [sortKey, setSortKey] = useState<ColumnKey | null>(null);
-  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [sortKey, setSortKey] = useState<ColumnKey>("created");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const handleSort = (key: ColumnKey) => {
     if (!SORT_ACCESSORS[key]) return;
@@ -43,7 +43,6 @@ export function PRSection({ section, visibleColumns }: Props) {
   };
 
   const sortedPrs = useMemo(() => {
-    if (!sortKey) return section.prs;
     const accessor = SORT_ACCESSORS[sortKey];
     if (!accessor) return section.prs;
     const sorted = [...section.prs].sort((a, b) => {
