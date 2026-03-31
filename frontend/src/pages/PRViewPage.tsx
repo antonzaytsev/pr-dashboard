@@ -3,6 +3,7 @@ import { useParams, Link } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
+import { timeAgo } from "../utils/time";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4511";
 
@@ -49,16 +50,6 @@ interface PRDetail {
   changed_files: number;
   base_branch: string;
   head_branch: string;
-}
-
-function timeAgo(iso: string): string {
-  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(seconds / 3600);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
 }
 
 function statusLabel(status: PRDetail["status"]): string {

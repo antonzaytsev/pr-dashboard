@@ -1,23 +1,28 @@
+import { useState } from "react";
 import { Link } from "react-router-dom";
 import type { PR, ColumnKey } from "../types";
+import { timeAgo, formatDateTime } from "../utils/time";
 
 interface Props {
   pr: PR;
   visibleColumns: Set<ColumnKey>;
 }
 
-function timeAgo(iso: string): string {
-  const seconds = (Date.now() - new Date(iso).getTime()) / 1000;
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(seconds / 3600);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString();
+function CopyLinkBtn({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className={`copy-link-btn${copied ? " copied" : ""}`}
+      title="Copy GitHub URL"
+      onClick={() => {
+        navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }}
+    >
+      {copied ? "✓" : "🔗"}
+    </button>
+  );
 }
 
 export function PRRow({ pr, visibleColumns }: Props) {
@@ -37,6 +42,7 @@ export function PRRow({ pr, visibleColumns }: Props) {
           <Link to={`/pr/${pr.repo}/${pr.number}`}>
             #{pr.number}
           </Link>
+          <CopyLinkBtn url={pr.url} />
         </td>
       )}
       {show("repo") && (

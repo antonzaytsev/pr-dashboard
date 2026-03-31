@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import type { PRData } from "../types";
 import { PRSection } from "../components/PRSection";
 import { useColumnVisibility } from "../hooks/useColumnVisibility";
+import { timeAgo, formatDateTime } from "../utils/time";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4511";
 
@@ -47,9 +48,8 @@ export function ReviewPage() {
     return () => clearInterval(interval);
   }, [fetchData, data?.updated_at]);
 
-  const updatedAt = data?.updated_at
-    ? new Date(data.updated_at).toLocaleTimeString()
-    : "—";
+  const updatedAtRelative = data?.updated_at ? timeAgo(data.updated_at) : "—";
+  const updatedAtAbsolute = data?.updated_at ? formatDateTime(data.updated_at) : "";
 
   return (
     <>
@@ -57,8 +57,8 @@ export function ReviewPage() {
         <div className="header-left">
           <h1>PRs to Review</h1>
           {data && data.updated_at && (
-            <span className="subtitle">
-              {data.total} open · last {data.days_window}d · updated {updatedAt}
+            <span className="subtitle" title={updatedAtAbsolute}>
+              {data.total} open · last {data.days_window}d · updated {updatedAtRelative}
             </span>
           )}
         </div>
