@@ -44,10 +44,13 @@ export function PRRow({ pr, visibleColumns }: Props) {
     <tr>
       {show("pr") && (
         <td className="pr-num">
-          <Link to={`/pr/${pr.number}`}>
+          <Link to={`/pr/${pr.number}?repo=${encodeURIComponent(pr.repo)}`}>
             #{pr.number}
           </Link>
         </td>
+      )}
+      {show("repo") && (
+        <td className="repo">{pr.repo ? pr.repo.split("/")[1] : ""}</td>
       )}
       {show("author") && <td>{pr.author}</td>}
       {show("status") && (

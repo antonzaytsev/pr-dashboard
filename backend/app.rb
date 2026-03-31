@@ -6,7 +6,11 @@ require "time"
 require "net/http"
 require "uri"
 
-REPO = "sdtechdev/spree-jiffyshirts"
+AVAILABLE_REPOS = {
+  "sdtechdev/spree-jiffyshirts" => "spree-jiffyshirts",
+  "sdtechdev/assignment" => "assignment"
+}.freeze
+$enabled_repos = AVAILABLE_REPOS.keys.dup
 MY_ALIASES = %w[zaytsev-anton antonzaytsev].freeze
 GH_TOKEN = ENV.fetch("GITHUB_TOKEN")
 POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "300")) # seconds
@@ -47,75 +51,83 @@ def gh_request(http, query)
 end
 
 def fetch_prs
-  owner, name = REPO.split("/")
   cutoff = Time.now - ($days_window * 86400)
-
-  # Pass 1: lightweight list (sequential pagination, persistent connection)
   all_prs = []
-  with_gh_connection do |http|
-    cursor = nil
-    loop do
-      after_clause = cursor ? %Q(, after: "#{cursor}") : ""
-      query = <<~GQL
-        query {
-          repository(owner: "#{owner}", name: "#{name}") {
-            pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
-              pageInfo { hasNextPage endCursor }
-              nodes {
-                number title isDraft mergeable createdAt updatedAt
-                author { login }
-                reviewDecision
+
+  $enabled_repos.each do |repo_full|
+    owner, name = repo_full.split("/")
+
+    # Pass 1: lightweight list (sequential pagination, persistent connection)
+    repo_prs = []
+    with_gh_connection do |http|
+      cursor = nil
+      loop do
+        after_clause = cursor ? %Q(, after: "#{cursor}") : ""
+        query = <<~GQL
+          query {
+            repository(owner: "#{owner}", name: "#{name}") {
+              pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  number title isDraft mergeable createdAt updatedAt
+                  author { login }
+                  reviewDecision
+                }
               }
             }
           }
-        }
-      GQL
+        GQL
 
-      data = gh_request(http, query)
-      nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
-      page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
-      all_prs.concat(nodes)
+        data = gh_request(http, query)
+        nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
+        page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
+        # Tag each PR with its repo
+        nodes.each { |n| n["_repo"] = repo_full }
+        repo_prs.concat(nodes)
 
-      last_updated = nodes.last && Time.parse(nodes.last["updatedAt"])
-      break if last_updated && last_updated < cutoff
-      break unless page_info&.dig("hasNextPage")
-      cursor = page_info["endCursor"]
-    end
-  end
-
-  relevant = all_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
-  $stderr.puts "[#{Time.now}] Pass 1 done: #{all_prs.size} fetched, #{relevant.size} within window"
-
-  # Pass 2: fetch review/comment details in parallel batches
-  batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
-  details = {}
-  mutex = Mutex.new
-
-  batches.each_slice(MAX_PARALLEL) do |chunk|
-    threads = chunk.map do |batch|
-      Thread.new do
-        with_gh_connection do |http|
-          aliases = batch.map { |n|
-            "pr_#{n}: pullRequest(number: #{n}) {\n#{DETAIL_FIELDS}}"
-          }.join("\n")
-          query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
-          data = gh_request(http, query)
-          repo = data.dig("data", "repository") || {}
-          batch.each do |n|
-            d = repo["pr_#{n}"]
-            mutex.synchronize { details[n] = d } if d
-          end
-        end
-      rescue StandardError => e
-        $stderr.puts "[#{Time.now}] Detail batch error (#{batch.first}..#{batch.last}): #{e.message}"
+        last_updated = nodes.last && Time.parse(nodes.last["updatedAt"])
+        break if last_updated && last_updated < cutoff
+        break unless page_info&.dig("hasNextPage")
+        cursor = page_info["endCursor"]
       end
     end
-    threads.each(&:join)
+
+    relevant = repo_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
+    $stderr.puts "[#{Time.now}] Pass 1 done (#{repo_full}): #{repo_prs.size} fetched, #{relevant.size} within window"
+
+    # Pass 2: fetch review/comment details in parallel batches
+    batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
+    details = {}
+    mutex = Mutex.new
+
+    batches.each_slice(MAX_PARALLEL) do |chunk|
+      threads = chunk.map do |batch|
+        Thread.new do
+          with_gh_connection do |http|
+            aliases = batch.map { |n|
+              "pr_#{n}: pullRequest(number: #{n}) {\n#{DETAIL_FIELDS}}"
+            }.join("\n")
+            query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
+            data = gh_request(http, query)
+            repo = data.dig("data", "repository") || {}
+            batch.each do |n|
+              d = repo["pr_#{n}"]
+              mutex.synchronize { details[n] = d } if d
+            end
+          end
+        rescue StandardError => e
+          $stderr.puts "[#{Time.now}] Detail batch error (#{batch.first}..#{batch.last}): #{e.message}"
+        end
+      end
+      threads.each(&:join)
+    end
+
+    relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
+    $stderr.puts "[#{Time.now}] Pass 2 done (#{repo_full}): details fetched for #{details.size} PRs in #{batches.size} batches"
+    all_prs.concat(relevant)
   end
 
-  relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
-  $stderr.puts "[#{Time.now}] Pass 2 done: details fetched for #{details.size} PRs in #{batches.size} batches"
-  relevant
+  all_prs
 end
 
 def extract_pr_details(pr)
@@ -208,7 +220,8 @@ def build_pr_hash(pr, details)
     needs_re_review: !!details[:needs_re_review],
     ci_status: ci_status,
     unresolved_comments: details[:unresolved_comments],
-    url: "https://github.com/#{REPO}/pull/#{pr["number"]}"
+    repo: pr["_repo"],
+    url: "https://github.com/#{pr["_repo"]}/pull/#{pr["number"]}"
   }
 end
 
@@ -364,7 +377,8 @@ end
 
 get "/api/pr/:number" do
   pr_number = Integer(params[:number])
-  owner, name = REPO.split("/")
+  repo_full = params[:repo] || $enabled_repos.first || AVAILABLE_REPOS.keys.first
+  owner, name = repo_full.split("/")
 
   query = <<~GQL
     query {
@@ -478,13 +492,32 @@ get "/api/pr/:number" do
     ci_checks: ci_checks,
     unresolved_comments: details[:unresolved_comments],
     unresolved_threads: unresolved_threads,
-    url: "https://github.com/#{REPO}/pull/#{pr["number"]}",
+    url: "https://github.com/#{repo_full}/pull/#{pr["number"]}",
     additions: pr["additions"],
     deletions: pr["deletions"],
     changed_files: pr["changedFiles"],
     base_branch: pr["baseRefName"],
     head_branch: pr["headRefName"],
   }.to_json
+end
+
+get "/api/repos" do
+  content_type :json
+  {
+    available: AVAILABLE_REPOS.map { |full, label| { id: full, label: label } },
+    enabled: $enabled_repos.dup
+  }.to_json
+end
+
+post "/api/repos" do
+  body = JSON.parse(request.body.read)
+  repos = Array(body["repos"]).select { |r| AVAILABLE_REPOS.key?(r) }
+  halt 400, { error: "At least one repo must be enabled" }.to_json if repos.empty?
+
+  $enabled_repos = repos
+  refresh_cache
+  content_type :json
+  { enabled: $enabled_repos.dup }.to_json
 end
 
 get "/health" do

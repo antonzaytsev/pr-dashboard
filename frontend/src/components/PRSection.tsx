@@ -32,7 +32,7 @@ export function PRSection({ section, visibleColumns }: Props) {
           </thead>
           <tbody>
             {section.prs.map((pr) => (
-              <PRRow key={pr.number} pr={pr} visibleColumns={visibleColumns} />
+              <PRRow key={`${pr.repo}#${pr.number}`} pr={pr} visibleColumns={visibleColumns} />
             ))}
           </tbody>
         </table>

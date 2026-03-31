@@ -138,19 +138,20 @@ table {
 }
 
 .col-pr { width: 4%; }
+.col-repo { width: 7%; }
 .col-author { width: 7%; }
 .col-status { width: 8%; }
 .col-ci { width: 5%; }
-.col-title { width: 17%; }
+.col-title { width: 16%; }
 .col-conflicts { width: 5%; }
-.col-requested { width: 8%; }
+.col-requested { width: 7%; }
 .col-approved { width: 7%; }
 .col-changes { width: 7%; }
-.col-commented { width: 7%; }
-.col-unresolved { width: 6%; }
-.col-created { width: 7%; }
-.col-my-review { width: 6%; }
-.col-updated { width: 6%; }
+.col-commented { width: 6%; }
+.col-unresolved { width: 5%; }
+.col-created { width: 6%; }
+.col-my-review { width: 5%; }
+.col-updated { width: 5%; }
 
 th {
   text-align: left;
@@ -165,6 +166,8 @@ td {
   padding: 8px 12px;
   border-bottom: 1px solid #21262d;
   vertical-align: top;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 tr:hover td {

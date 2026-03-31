@@ -15,11 +15,13 @@ export interface PR {
   needs_re_review: boolean;
   ci_status: "pass" | "in_progress" | "failed" | "unknown";
   unresolved_comments: number;
+  repo: string;
   url: string;
 }
 
 export type ColumnKey =
   | "pr"
+  | "repo"
   | "author"
   | "status"
   | "title"
@@ -44,6 +46,7 @@ export interface ColumnDef {
 
 export const ALL_COLUMNS: ColumnDef[] = [
   { key: "pr", label: "PR", tooltip: "Pull request number", className: "col-pr", hideable: false },
+  { key: "repo", label: "Repo", tooltip: "Repository name", className: "col-repo", hideable: true },
   { key: "author", label: "Author", tooltip: "Who opened the PR", className: "col-author", hideable: true },
   { key: "status", label: "Status", tooltip: "Review decision: approved, changes requested, or pending", className: "col-status", hideable: true },
   { key: "title", label: "Title", tooltip: "PR title", className: "col-title", hideable: false },
