@@ -60,6 +60,7 @@ function App() {
           PRs to Review
         </NavLink>
         <NavLink to="/my-prs">My PRs</NavLink>
+        <NavLink to="/stats">Statistics</NavLink>
         <RateLimitIndicator />
         <NavLink to="/settings" className="nav-settings">
           Settings

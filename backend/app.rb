@@ -15,12 +15,14 @@ MY_ALIASES = %w[zaytsev-anton antonzaytsev].freeze
 GH_TOKEN = ENV.fetch("GITHUB_TOKEN")
 POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "600")) # seconds
 $days_window = 3
+$stats_window = 7
 
 set :bind, "0.0.0.0"
 set :port, Integer(ENV.fetch("PORT", "4511"))
 
 $pr_cache = { sections: [], updated_at: nil, total: 0 }
 $my_pr_cache = { sections: [], updated_at: nil, total: 0 }
+$stats_cache = { updated_at: nil }
 $cache_mutex = Mutex.new
 $rate_limit_reset = nil # Time when rate limit resets; skip GH calls until then
 
@@ -146,6 +148,224 @@ def fetch_prs
   end
 
   all_prs
+end
+
+STATS_DETAIL_FIELDS = <<~GQL.freeze
+  reviews(last: 100) { nodes { author { login } state submittedAt } }
+  reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
+GQL
+
+def fetch_stats_prs
+  if rate_limited?
+    $stderr.puts "[#{Time.now}] Skipping fetch_stats_prs — rate limited until #{$rate_limit_reset}"
+    return nil
+  end
+  cutoff = Time.now - ($stats_window * 86400)
+  all_prs = []
+
+  $enabled_repos.each do |repo_full|
+    owner, name = repo_full.split("/")
+
+    repo_prs = []
+    with_gh_connection do |http|
+      cursor = nil
+      loop do
+        after_clause = cursor ? %Q(, after: "#{cursor}") : ""
+        query = <<~GQL
+          query {
+            repository(owner: "#{owner}", name: "#{name}") {
+              pullRequests(states: [OPEN, MERGED], first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
+                pageInfo { hasNextPage endCursor }
+                nodes {
+                  number title isDraft createdAt updatedAt mergedAt state
+                  author { login }
+                  additions deletions changedFiles
+                }
+              }
+            }
+          }
+        GQL
+
+        data = gh_request(http, query)
+        nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
+        page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
+        nodes.each { |n| n["_repo"] = repo_full }
+        repo_prs.concat(nodes)
+
+        last_updated = nodes.last && Time.parse(nodes.last["updatedAt"])
+        break if last_updated && last_updated < cutoff
+        break unless page_info&.dig("hasNextPage")
+        cursor = page_info["endCursor"]
+      end
+    end
+
+    relevant = repo_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
+    $stderr.puts "[#{Time.now}] Stats pass 1 done (#{repo_full}): #{repo_prs.size} fetched, #{relevant.size} within window"
+
+    batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
+    details = {}
+    mutex = Mutex.new
+
+    batches.each_slice(MAX_PARALLEL) do |chunk|
+      threads = chunk.map do |batch|
+        Thread.new do
+          with_gh_connection do |http|
+            aliases = batch.map { |n|
+              "pr_#{n}: pullRequest(number: #{n}) {\n#{STATS_DETAIL_FIELDS}}"
+            }.join("\n")
+            query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
+            data = gh_request(http, query)
+            repo = data.dig("data", "repository") || {}
+            batch.each do |n|
+              d = repo["pr_#{n}"]
+              mutex.synchronize { details[n] = d } if d
+            end
+          end
+        rescue StandardError => e
+          $stderr.puts "[#{Time.now}] Stats detail batch error: #{e.message}"
+        end
+      end
+      threads.each(&:join)
+    end
+
+    relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
+    $stderr.puts "[#{Time.now}] Stats pass 2 done (#{repo_full}): details for #{details.size} PRs"
+    all_prs.concat(relevant)
+  end
+
+  all_prs
+end
+
+def process_stats(raw_prs)
+  cutoff = Time.now - ($stats_window * 86400)
+
+  my_reviewed = 0
+  my_approved = 0
+  my_changes_requested = 0
+  my_review_comments = 0
+  my_opened = 0
+  my_merged = 0
+  times_to_first_review = []
+  my_times_to_first_review = []
+  times_to_merge = []
+  total_opened = 0
+  total_merged = 0
+  pr_sizes = []
+  teammate_stats = Hash.new { |h, k| h[k] = { reviewed: 0, approved: 0, changes_requested: 0, comments: 0 } }
+
+  raw_prs.each do |pr|
+    author = pr.dig("author", "login")
+    created = Time.parse(pr["createdAt"])
+    is_mine = MY_ALIASES.include?(author)
+
+    # Count PRs opened in window
+    if created > cutoff
+      total_opened += 1
+      my_opened += 1 if is_mine
+      pr_sizes << (pr["additions"] || 0) + (pr["deletions"] || 0)
+    end
+
+    # Count merges in window
+    if pr["mergedAt"]
+      merged_at = Time.parse(pr["mergedAt"])
+      if merged_at > cutoff
+        total_merged += 1
+        my_merged += 1 if is_mine
+        times_to_merge << (merged_at - created) / 3600.0
+      end
+    end
+
+    # Process reviews
+    reviews = pr.dig("reviews", "nodes") || []
+    reviewers_seen = {}
+
+    reviews.sort_by { |r| r["submittedAt"] || "" }.each do |review|
+      reviewer = review.dig("author", "login")
+      next unless reviewer
+      submitted = review["submittedAt"]
+      next unless submitted
+
+      submitted_time = Time.parse(submitted)
+      next unless submitted_time > cutoff
+
+      # Track first review per reviewer per PR
+      unless reviewers_seen[reviewer]
+        reviewers_seen[reviewer] = true
+
+        if MY_ALIASES.include?(reviewer)
+          my_reviewed += 1
+          my_approved += 1 if review["state"] == "APPROVED"
+          my_changes_requested += 1 if review["state"] == "CHANGES_REQUESTED"
+        else
+          teammate_stats[reviewer][:reviewed] += 1
+          teammate_stats[reviewer][:approved] += 1 if review["state"] == "APPROVED"
+          teammate_stats[reviewer][:changes_requested] += 1 if review["state"] == "CHANGES_REQUESTED"
+        end
+      end
+    end
+
+    # Time to first review (any reviewer)
+    first_review = reviews.filter_map { |r| r["submittedAt"] }.min
+    if first_review
+      first_review_time = Time.parse(first_review)
+      hours = (first_review_time - created) / 3600.0
+      if hours >= 0
+        times_to_first_review << hours
+        my_times_to_first_review << hours if is_mine
+      end
+    end
+
+    # Count review comments per user from threads
+    (pr.dig("reviewThreads", "nodes") || []).each do |thread|
+      (thread.dig("comments", "nodes") || []).each do |comment|
+        commenter = comment.dig("author", "login")
+        next unless commenter
+        comment_time = comment["createdAt"] && Time.parse(comment["createdAt"])
+        next unless comment_time && comment_time > cutoff
+
+        if MY_ALIASES.include?(commenter)
+          my_review_comments += 1
+        else
+          teammate_stats[commenter][:comments] += 1
+        end
+      end
+    end
+  end
+
+  avg = ->(arr) { arr.empty? ? nil : (arr.sum / arr.size).round(1) }
+
+  me_entry = { user: MY_ALIASES.first, reviewed: my_reviewed, approved: my_approved,
+               changes_requested: my_changes_requested, comments: my_review_comments, is_me: true }
+
+  teammate_list = teammate_stats.map { |user, s|
+    { user: user, reviewed: s[:reviewed], approved: s[:approved],
+      changes_requested: s[:changes_requested], comments: s[:comments], is_me: false }
+  }
+  teammate_list.push(me_entry)
+
+  {
+    my_activity: {
+      prs_reviewed: my_reviewed,
+      prs_approved: my_approved,
+      changes_requested: my_changes_requested,
+      review_comments: my_review_comments
+    },
+    my_prs: {
+      opened: my_opened,
+      merged: my_merged,
+      avg_time_to_first_review_hours: avg.call(my_times_to_first_review),
+      avg_time_to_merge_hours: avg.call(times_to_merge.select { |t| t > 0 })
+    },
+    teammate_activity: teammate_list,
+    overview: {
+      total_prs_opened: total_opened,
+      total_prs_merged: total_merged,
+      avg_time_to_first_review_hours: avg.call(times_to_first_review),
+      avg_pr_size: avg.call(pr_sizes) || 0
+    },
+    updated_at: Time.now.utc.iso8601,
+    window_days: $stats_window
+  }
 end
 
 def extract_pr_details(pr)
@@ -347,11 +567,22 @@ rescue StandardError => e
   $stderr.puts "[#{Time.now}] Refresh error: #{e.message}"
 end
 
+def refresh_stats_cache
+  raw = fetch_stats_prs
+  return unless raw
+  result = process_stats(raw)
+  $cache_mutex.synchronize { $stats_cache = result }
+  $stderr.puts "[#{Time.now}] Stats refreshed"
+rescue StandardError => e
+  $stderr.puts "[#{Time.now}] Stats refresh error: #{e.message}"
+end
+
 # --- Background poller ---
 
 Thread.new do
   loop do
     refresh_cache
+    refresh_stats_cache
     loaded = $cache_mutex.synchronize { $pr_cache[:updated_at] }
     sleep(loaded ? POLL_INTERVAL : 10)
   end
@@ -383,6 +614,7 @@ end
 
 post "/api/refresh" do
   refresh_cache
+  refresh_stats_cache
   content_type :json
   data = $cache_mutex.synchronize { $pr_cache.dup }
   data.to_json
@@ -562,6 +794,24 @@ post "/api/pr/:owner/:name/:number/approve" do
 
   content_type :json
   { success: true, state: result.dig("data", "addPullRequestReview", "pullRequestReview", "state") }.to_json
+end
+
+get "/api/stats" do
+  content_type :json
+  data = $cache_mutex.synchronize { $stats_cache.dup }
+  data.to_json
+end
+
+post "/api/stats_window" do
+  body = JSON.parse(request.body.read)
+  new_window = Integer(body["window_days"])
+  halt 400, { error: "window_days must be 7, 14, 21, or 28" }.to_json unless [7, 14, 21, 28].include?(new_window)
+
+  $stats_window = new_window
+  refresh_stats_cache
+  content_type :json
+  data = $cache_mutex.synchronize { $stats_cache.dup }
+  data.to_json
 end
 
 get "/api/repos" do
