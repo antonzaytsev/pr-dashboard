@@ -13,7 +13,7 @@ AVAILABLE_REPOS = {
 $enabled_repos = AVAILABLE_REPOS.keys.dup
 MY_ALIASES = %w[zaytsev-anton antonzaytsev].freeze
 GH_TOKEN = ENV.fetch("GITHUB_TOKEN")
-POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "300")) # seconds
+POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "600")) # seconds
 $days_window = 3
 
 set :bind, "0.0.0.0"
@@ -32,7 +32,7 @@ GH_URI = URI("https://api.github.com/graphql").freeze
 
 DETAIL_FIELDS = <<~GQL.freeze
   reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-  reviews(first: 50) { nodes { author { login } state submittedAt } }
+  reviews(last: 100) { nodes { author { login } state submittedAt } }
   commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }
   reviewThreads(first: 50) { nodes { isResolved comments(first: 30) { nodes { author { login } createdAt } } } }
   comments(first: 100) { nodes { author { login } } }
@@ -69,7 +69,7 @@ def fetch_prs
               pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
                 pageInfo { hasNextPage endCursor }
                 nodes {
-                  number title isDraft mergeable createdAt updatedAt
+                  number title isDraft mergeable createdAt updatedAt baseRefName
                   author { login }
                   reviewDecision
                 }
@@ -141,6 +141,7 @@ def extract_pr_details(pr)
   (pr.dig("reviews", "nodes") || []).each do |r|
     login = r.dig("author", "login")
     next unless login
+    next if r["state"] == "COMMENTED" || r["state"] == "PENDING" || r["state"] == "DISMISSED"
     ts = r["submittedAt"]
     prev = latest_reviews[login]
     latest_reviews[login] = r if prev.nil? || (ts && prev["submittedAt"] && ts > prev["submittedAt"])
@@ -223,6 +224,8 @@ def build_pr_hash(pr, details)
     ci_status: ci_status,
     unresolved_comments: details[:unresolved_comments],
     total_review_threads: details[:total_review_threads],
+    my_approved: !!details[:my_approved],
+    base_branch: pr["baseRefName"],
     repo: pr["_repo"],
     url: "https://github.com/#{pr["_repo"]}/pull/#{pr["number"]}"
   }
@@ -394,7 +397,7 @@ get "/api/pr/:owner/:name/:number" do
           additions deletions changedFiles
           baseRefName headRefName
           reviewRequests(first: 20) { nodes { requestedReviewer { ... on User { login } ... on Team { name } } } }
-          reviews(first: 50) { nodes { author { login } state submittedAt } }
+          reviews(last: 100) { nodes { author { login } state submittedAt } }
           commits(last: 1) {
             nodes {
               commit {

@@ -16,6 +16,8 @@ export interface PR {
   ci_status: "pass" | "in_progress" | "failed" | "unknown";
   unresolved_comments: number;
   total_review_threads: number;
+  my_approved: boolean;
+  base_branch: string;
   repo: string;
   url: string;
 }
@@ -24,6 +26,7 @@ export type ColumnKey =
   | "pr"
   | "repo"
   | "author"
+  | "target"
   | "status"
   | "title"
   | "created"
@@ -42,6 +45,7 @@ export const ALL_COLUMNS: ColumnDef[] = [
   { key: "pr", label: "PR", tooltip: "Pull request number", className: "col-pr", hideable: false },
   { key: "repo", label: "Repo", tooltip: "Repository name", className: "col-repo", hideable: true },
   { key: "author", label: "Author", tooltip: "Who opened the PR", className: "col-author", hideable: true },
+  { key: "target", label: "Target", tooltip: "Target branch", className: "col-target", hideable: true },
   { key: "title", label: "Title", tooltip: "PR title", className: "col-title", hideable: false },
   { key: "status", label: "Status", tooltip: "Approvals, changes requested, comments, conflicts, CI", className: "col-status", hideable: false },
   { key: "created", label: "Created", tooltip: "When the PR was opened", className: "col-created", hideable: true },
