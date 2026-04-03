@@ -243,31 +243,27 @@ export function PRViewPage() {
         <div className="pr-view-sidebar">
           <div className="pr-view-card">
             <h3>Reviewers</h3>
-            <div className="pr-view-reviewer-section">
-              {pr.approved_by.length > 0 && (
-                <div className="pr-view-reviewer-group">
-                  <span className="pr-view-reviewer-label approved">Approved</span>
-                  <span>{pr.approved_by.join(", ")}</span>
+            {(() => {
+              const commentedOnly = pr.commented_by.filter((u) => !pr.approved_by.includes(u) && !pr.changes_requested_by.includes(u));
+              const reviewers: { user: string; icon: string; cls: string; title: string }[] = [
+                ...pr.approved_by.map((u) => ({ user: u, icon: "✓", cls: "approved", title: "Approved" })),
+                ...pr.changes_requested_by.map((u) => ({ user: u, icon: "✗", cls: "changes-req", title: "Changes requested" })),
+                ...commentedOnly.map((u) => ({ user: u, icon: "💬", cls: "commented", title: "Commented" })),
+                ...pr.requested_from.map((u) => ({ user: u, icon: "⏳", cls: "requested", title: "Pending" })),
+              ];
+              return reviewers.length > 0 ? (
+                <div className="pr-view-reviewer-list">
+                  {reviewers.map((r) => (
+                    <div key={r.user} className="pr-view-reviewer-row" title={r.title}>
+                      <span className={`pr-view-reviewer-icon ${r.cls}`}>{r.icon}</span>
+                      <span>{r.user}</span>
+                    </div>
+                  ))}
                 </div>
-              )}
-              {pr.changes_requested_by.length > 0 && (
-                <div className="pr-view-reviewer-group">
-                  <span className="pr-view-reviewer-label changes-req">Changes requested</span>
-                  <span>{pr.changes_requested_by.join(", ")}</span>
-                </div>
-              )}
-              {pr.requested_from.length > 0 && (
-                <div className="pr-view-reviewer-group">
-                  <span className="pr-view-reviewer-label requested">Pending</span>
-                  <span>{pr.requested_from.join(", ")}</span>
-                </div>
-              )}
-              {pr.approved_by.length === 0 &&
-                pr.changes_requested_by.length === 0 &&
-                pr.requested_from.length === 0 && (
-                  <span className="pr-view-empty">No reviewers</span>
-                )}
-            </div>
+              ) : (
+                <span className="pr-view-empty">No reviewers</span>
+              );
+            })()}
           </div>
 
           <div className="pr-view-card">

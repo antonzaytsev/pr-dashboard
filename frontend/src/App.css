@@ -798,41 +798,30 @@ a:hover {
 }
 
 /* Reviewers */
-.pr-view-reviewer-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.pr-view-reviewer-group {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+.pr-view-reviewer-list {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 4px;
   font-size: 13px;
 }
 
-.pr-view-reviewer-label {
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  white-space: nowrap;
+.pr-view-reviewer-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.pr-view-reviewer-label.approved {
-  background: rgba(63, 185, 80, 0.2);
-  color: #3fb950;
+.pr-view-reviewer-icon {
+  font-size: 13px;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
-.pr-view-reviewer-label.changes-req {
-  background: rgba(218, 54, 51, 0.2);
-  color: #f85149;
-}
-
-.pr-view-reviewer-label.requested {
-  background: rgba(139, 148, 158, 0.2);
-  color: #8b949e;
-}
+.pr-view-reviewer-icon.approved { color: #3fb950; }
+.pr-view-reviewer-icon.changes-req { color: #f85149; }
+.pr-view-reviewer-icon.commented { color: #a8a4e0; }
+.pr-view-reviewer-icon.requested { color: #8b949e; }
 
 /* Stats */
 .pr-view-stats {
