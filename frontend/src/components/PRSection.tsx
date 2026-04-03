@@ -9,6 +9,7 @@ const SORT_ACCESSORS: Partial<Record<ColumnKey, (pr: PR) => string | number>> = 
   pr: (pr) => pr.number,
   repo: (pr) => pr.repo,
   author: (pr) => pr.author.toLowerCase(),
+  target: (pr) => pr.base_branch?.toLowerCase() ?? "",
   title: (pr) => pr.title.toLowerCase(),
   created: (pr) => pr.created_at,
   myReview: (pr) => pr.my_reviewed_at ?? "",
@@ -68,10 +69,10 @@ export function PRSection({ section, visibleColumns }: Props) {
         <table>
           <thead>
             <tr>
-              {columns.map((col) => {
+              {columns.flatMap((col) => {
                 const sortable = !!SORT_ACCESSORS[col.key];
                 const active = sortKey === col.key;
-                return (
+                const th = (
                   <th
                     key={col.key}
                     className={`${col.className}${sortable ? " sortable" : ""}${active ? " sort-active" : ""}`}
@@ -82,6 +83,8 @@ export function PRSection({ section, visibleColumns }: Props) {
                     {active && <span className="sort-arrow">{sortDir === "asc" ? " ▲" : " ▼"}</span>}
                   </th>
                 );
+                if (col.key === "pr") return [th, <th key="pr-actions" className="col-pr-actions" />];
+                return [th];
               })}
             </tr>
           </thead>

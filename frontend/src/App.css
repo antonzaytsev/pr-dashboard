@@ -142,6 +142,7 @@ table {
 }
 
 .col-pr { width: 7%; }
+.col-pr-actions { width: 70px; }
 .col-repo { width: 9%; }
 .col-author { width: 9%; }
 .col-target { width: 7%; }
@@ -205,27 +206,46 @@ a:hover {
   text-overflow: clip !important;
 }
 
+.pr-actions-cell {
+  white-space: nowrap;
+}
+
+.pr-actions-cell .pr-action-btn,
+.pr-actions-cell .copy-link-btn {
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.pr-action-btn {
+  color: #8b949e;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  text-decoration: none !important;
+  transition: color 0.15s;
+}
+
+.pr-action-btn:hover {
+  color: #58a6ff;
+  text-decoration: none !important;
+}
+
 .copy-link-btn {
   background: none;
   border: none;
   cursor: pointer;
-  font-size: 11px;
-  padding: 0 0 0 4px;
-  opacity: 0;
-  transition: opacity 0.15s;
-  vertical-align: middle;
-}
-
-tr:hover .copy-link-btn {
-  opacity: 0.5;
+  font-size: 12px;
+  padding: 0;
+  color: #8b949e;
+  text-decoration: none !important;
+  transition: color 0.15s;
 }
 
 .copy-link-btn:hover {
-  opacity: 1 !important;
+  color: #58a6ff;
 }
 
 .copy-link-btn.copied {
-  opacity: 1 !important;
   color: #3fb950;
 }
 
