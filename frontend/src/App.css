@@ -141,8 +141,8 @@ table {
   table-layout: fixed;
 }
 
-.col-pr { width: 7%; }
-.col-pr-actions { width: 70px; }
+.col-pr { width: 5%; }
+.col-pr-actions { width: 80px; }
 .col-repo { width: 9%; }
 .col-author { width: 9%; }
 .col-target { width: 7%; }
@@ -208,6 +208,8 @@ a:hover {
 
 .pr-actions-cell {
   white-space: nowrap;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }
 
 .pr-actions-cell .pr-action-btn,
