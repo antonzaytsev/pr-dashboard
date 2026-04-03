@@ -599,8 +599,48 @@ a:hover {
   color: #58a6ff;
 }
 
+.pr-view-header-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+}
+
+.pr-view-header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.pr-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .pr-view-gh-link {
   font-size: 13px;
+}
+
+.approve-btn {
+  background: rgba(63, 185, 80, 0.15);
+  color: #3fb950;
+  border: 1px solid rgba(63, 185, 80, 0.4);
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.approve-btn:hover:not(:disabled) {
+  background: rgba(63, 185, 80, 0.25);
+  border-color: rgba(63, 185, 80, 0.6);
+}
+
+.approve-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .pr-view-grid {

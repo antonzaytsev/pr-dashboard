@@ -410,7 +410,7 @@ get "/api/pr/:owner/:name/:number" do
     query {
       repository(owner: "#{owner}", name: "#{name}") {
         pullRequest(number: #{pr_number}) {
-          number title body isDraft mergeable createdAt updatedAt
+          id number title body isDraft mergeable createdAt updatedAt
           author { login }
           reviewDecision
           additions deletions changedFiles
@@ -499,6 +499,7 @@ get "/api/pr/:owner/:name/:number" do
 
   content_type :json
   {
+    node_id: pr["id"],
     number: pr["number"],
     title: pr["title"],
     body: pr["body"],
@@ -526,6 +527,41 @@ get "/api/pr/:owner/:name/:number" do
     base_branch: pr["baseRefName"],
     head_branch: pr["headRefName"],
   }.to_json
+end
+
+post "/api/pr/:owner/:name/:number/approve" do
+  pr_number = Integer(params[:number])
+  owner = params[:owner]
+  name = params[:name]
+
+  # First get the PR node ID
+  id_query = <<~GQL
+    query {
+      repository(owner: "#{owner}", name: "#{name}") {
+        pullRequest(number: #{pr_number}) { id }
+      }
+    }
+  GQL
+
+  data = with_gh_connection { |http| gh_request(http, id_query) }
+  pr_id = data.dig("data", "repository", "pullRequest", "id")
+  halt 404, { error: "PR not found" }.to_json unless pr_id
+
+  # Submit approval review
+  mutation = <<~GQL
+    mutation {
+      addPullRequestReview(input: { pullRequestId: "#{pr_id}", event: APPROVE }) {
+        pullRequestReview { state }
+      }
+    }
+  GQL
+
+  result = with_gh_connection { |http| gh_request(http, mutation) }
+  errors = result["errors"]
+  halt 422, { error: errors.map { |e| e["message"] }.join(", ") }.to_json if errors&.any?
+
+  content_type :json
+  { success: true, state: result.dig("data", "addPullRequestReview", "pullRequestReview", "state") }.to_json
 end
 
 get "/api/repos" do

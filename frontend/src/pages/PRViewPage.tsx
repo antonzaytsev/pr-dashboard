@@ -28,6 +28,7 @@ interface UnresolvedThread {
 }
 
 interface PRDetail {
+  node_id: string;
   number: number;
   title: string;
   body: string;
@@ -76,6 +77,8 @@ export function PRViewPage() {
   const [pr, setPr] = useState<PRDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
+  const [approveMsg, setApproveMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchPR() {
@@ -92,6 +95,26 @@ export function PRViewPage() {
     }
     fetchPR();
   }, [owner, repo, number]);
+
+  const handleApprove = async () => {
+    setApproving(true);
+    setApproveMsg(null);
+    try {
+      const res = await fetch(`${API_URL}/api/pr/${owner}/${repo}/${number}/approve`, { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `HTTP ${res.status}`);
+      }
+      setApproveMsg("Approved");
+      // Re-fetch PR to update status
+      const prRes = await fetch(`${API_URL}/api/pr/${owner}/${repo}/${number}`);
+      if (prRes.ok) setPr(await prRes.json());
+    } catch (e) {
+      setApproveMsg(e instanceof Error ? e.message : "Failed to approve");
+    } finally {
+      setApproving(false);
+    }
+  };
 
   if (loading) return <div className="loading">Loading...</div>;
   if (error) return <div className="error">Error: {error}</div>;
@@ -117,22 +140,40 @@ export function PRViewPage() {
       </div>
 
       <div className="pr-view-header">
-        <div className="pr-view-title-row">
-          <h1>
-            {pr.title} <span className="pr-view-number">#{pr.number}</span>
-          </h1>
+        <div className="pr-view-header-top">
+          <div className="pr-view-header-left">
+            <div className="pr-view-title-row">
+              <h1>
+                {pr.title} <span className="pr-view-number">#{pr.number}</span>
+              </h1>
+            </div>
+            <div className="pr-view-meta">
+              <span className={statusClass(pr.status)}>{statusLabel(pr.status)}</span>
+              <span className="pr-view-author">
+                <strong>{pr.author}</strong> wants to merge into{" "}
+                <code>{pr.base_branch}</code> from <code>{pr.head_branch}</code>
+              </span>
+            </div>
+          </div>
         </div>
-        <div className="pr-view-meta">
-          <span className={statusClass(pr.status)}>{statusLabel(pr.status)}</span>
-          <span className="pr-view-author">
-            <strong>{pr.author}</strong> wants to merge into{" "}
-            <code>{pr.base_branch}</code> from <code>{pr.head_branch}</code>
-          </span>
-        </div>
-        <div className="pr-view-gh-link">
-          <a href={pr.url} target="_blank" rel="noopener noreferrer">
+        <div className="pr-view-actions">
+          <a href={pr.url} target="_blank" rel="noopener noreferrer" className="pr-view-gh-link">
             View on GitHub &rarr;
           </a>
+          {pr.status !== "approved" && (
+            <button
+              className="approve-btn"
+              onClick={handleApprove}
+              disabled={approving}
+            >
+              {approving ? "Approving..." : "Approve"}
+            </button>
+          )}
+          {approveMsg && (
+            <span className={`settings-msg ${approveMsg === "Approved" ? "ok" : "err"}`}>
+              {approveMsg}
+            </span>
+          )}
         </div>
       </div>
 
