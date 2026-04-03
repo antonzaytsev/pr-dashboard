@@ -140,8 +140,9 @@ table {
 .col-pr { width: 7%; }
 .col-repo { width: 9%; }
 .col-author { width: 9%; }
+.col-target { width: 7%; }
 .col-status { width: 18%; }
-.col-title { width: 28%; }
+.col-title { width: 25%; }
 .col-created { width: 7%; }
 .col-my-review { width: 7%; }
 .col-updated { width: 7%; }
@@ -325,6 +326,14 @@ tr:hover .copy-link-btn {
   color: #d29922;
 }
 
+.target-branch {
+  color: #8b949e;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .title-cell {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -417,9 +426,35 @@ tr:hover .copy-link-btn {
   accent-color: #58a6ff;
 }
 
+/* Rate limit indicator */
+.rate-limit {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  margin-left: auto;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.rate-limit.ok {
+  color: #8b949e;
+}
+
+.rate-limit.low {
+  color: #d29922;
+  background: rgba(210, 153, 34, 0.1);
+}
+
+.rate-limit.exhausted {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.1);
+}
+
 /* Settings nav link pushed to the right */
 .nav-settings {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 /* Settings page */

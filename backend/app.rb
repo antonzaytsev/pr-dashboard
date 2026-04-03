@@ -22,6 +22,7 @@ set :port, Integer(ENV.fetch("PORT", "4511"))
 $pr_cache = { sections: [], updated_at: nil, total: 0 }
 $my_pr_cache = { sections: [], updated_at: nil, total: 0 }
 $cache_mutex = Mutex.new
+$rate_limit_reset = nil # Time when rate limit resets; skip GH calls until then
 
 # --- GitHub API helpers ---
 
@@ -42,15 +43,32 @@ def with_gh_connection(&block)
   Net::HTTP.start(GH_URI.hostname, GH_URI.port, use_ssl: true, read_timeout: 30, open_timeout: 10, &block)
 end
 
+def rate_limited?
+  $rate_limit_reset && Time.now < $rate_limit_reset
+end
+
 def gh_request(http, query)
   req = Net::HTTP::Post.new(GH_URI)
   req["Authorization"] = "Bearer #{GH_TOKEN}"
   req["Content-Type"] = "application/json"
   req.body = { query: query }.to_json
-  JSON.parse(http.request(req).body)
+  res = http.request(req)
+  remaining = res["x-ratelimit-remaining"]
+  reset = res["x-ratelimit-reset"]
+  if remaining && remaining.to_i <= 0 && reset
+    $rate_limit_reset = Time.at(reset.to_i)
+    $stderr.puts "[#{Time.now}] Rate limit exhausted, pausing until #{$rate_limit_reset}"
+  elsif remaining && remaining.to_i > 0
+    $rate_limit_reset = nil
+  end
+  JSON.parse(res.body)
 end
 
 def fetch_prs
+  if rate_limited?
+    $stderr.puts "[#{Time.now}] Skipping fetch_prs — rate limited until #{$rate_limit_reset}"
+    return nil
+  end
   cutoff = Time.now - ($days_window * 86400)
   all_prs = []
 
@@ -317,6 +335,7 @@ end
 
 def refresh_cache
   raw = fetch_prs
+  return unless raw
   result = process_prs(raw)
   my_result = process_my_prs(raw)
   $cache_mutex.synchronize do
@@ -526,6 +545,23 @@ post "/api/repos" do
   refresh_cache
   content_type :json
   { enabled: $enabled_repos.dup }.to_json
+end
+
+get "/api/rate-limit" do
+  content_type :json
+  uri = URI("https://api.github.com/rate_limit")
+  http = Net::HTTP.new(uri.hostname, uri.port)
+  http.use_ssl = true
+  http.open_timeout = 5
+  http.read_timeout = 5
+  req = Net::HTTP::Get.new(uri)
+  req["Authorization"] = "Bearer #{GH_TOKEN}"
+  res = JSON.parse(http.request(req).body)
+  graphql = res.dig("resources", "graphql") || {}
+  { limit: graphql["limit"], used: graphql["used"], remaining: graphql["remaining"], reset: graphql["reset"] }.to_json
+rescue StandardError => e
+  status 502
+  { error: e.message }.to_json
 end
 
 get "/health" do
