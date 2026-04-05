@@ -29,12 +29,11 @@ function RateLimitIndicator() {
 
   if (!rl) return null;
 
-  const pct = Math.round((rl.remaining / rl.limit) * 100);
-  const isLow = rl.remaining < rl.limit * 0.1;
+  const usedPct = Math.round(((rl.limit - rl.remaining) / rl.limit) * 100);
   const isExhausted = rl.remaining === 0;
 
   let resetLabel = "";
-  if (isExhausted || isLow) {
+  if (rl.reset) {
     const resetDate = new Date(rl.reset * 1000);
     const mins = Math.max(0, Math.round((resetDate.getTime() - Date.now()) / 60000));
     resetLabel = mins > 0 ? ` · resets in ${mins}m` : " · resets soon";
@@ -49,15 +48,18 @@ function RateLimitIndicator() {
     else updatedLabel = ` · updated ${Math.round(secsAgo / 3600)}h ago`;
   }
 
+  // green < 50%, yellow 50-80%, red > 80% used
   const cls = isExhausted
     ? "rate-limit exhausted"
-    : isLow
-      ? "rate-limit low"
-      : "rate-limit ok";
+    : usedPct >= 80
+      ? "rate-limit high"
+      : usedPct >= 50
+        ? "rate-limit medium"
+        : "rate-limit low-usage";
 
   return (
-    <span className={cls} title={`GitHub API: ${rl.remaining}/${rl.limit} remaining${resetLabel}${updatedLabel}`}>
-      {isExhausted ? `API limit exceeded${resetLabel}` : `API: ${pct}%`}
+    <span className={cls} title={`GitHub API: ${rl.limit - rl.remaining}/${rl.limit} used${resetLabel}${updatedLabel}`}>
+      {isExhausted ? `API limit exceeded${resetLabel}` : `API: ${usedPct}% used`}
     </span>
   );
 }

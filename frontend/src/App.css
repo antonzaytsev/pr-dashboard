@@ -464,18 +464,23 @@ a:hover {
   cursor: default;
 }
 
-.rate-limit.ok {
-  color: #8b949e;
+.rate-limit.low-usage {
+  color: #3fb950;
 }
 
-.rate-limit.low {
+.rate-limit.medium {
   color: #d29922;
   background: rgba(210, 153, 34, 0.1);
 }
 
-.rate-limit.exhausted {
+.rate-limit.high {
   color: #f85149;
   background: rgba(248, 81, 73, 0.1);
+}
+
+.rate-limit.exhausted {
+  color: #f85149;
+  background: rgba(248, 81, 73, 0.15);
 }
 
 /* Settings nav link pushed to the right */
