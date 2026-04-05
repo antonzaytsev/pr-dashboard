@@ -328,6 +328,10 @@ a:hover {
   color: #f85149;
 }
 
+.si-requested-active {
+  color: #a371f7;
+}
+
 .si-comments-resolved {
   color: #3fb950;
 }

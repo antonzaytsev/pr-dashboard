@@ -30,6 +30,7 @@ export function PRRow({ pr, visibleColumns }: Props) {
 
   const approvalCount = pr.approved_by.length;
   const changesCount = pr.changes_requested_by.length;
+  const requestedCount = pr.requested_from.length;
   const commentTotal = pr.total_review_threads;
   const commentUnresolved = pr.unresolved_comments;
   const hasConflicts = pr.has_conflicts;
@@ -86,6 +87,9 @@ export function PRRow({ pr, visibleColumns }: Props) {
           <span className={`si-val ${approvalCount > 0 ? "si-approved-active" : "si-dim"}`}>{approvalCount >= 2 ? approvalCount : ""}</span>
           <span className={`si-icon ${changesCount > 0 ? "si-changes-active" : "si-dim"}`} title={changesCount > 0 ? `Changes requested by: ${pr.changes_requested_by.join(", ")}` : "No changes requested"}>✗</span>
           <span className={`si-val ${changesCount > 0 ? "si-changes-active" : "si-dim"}`}>{changesCount >= 2 ? changesCount : ""}</span>
+          {requestedCount > 0 && (
+            <><span className="si-icon si-requested-active" title={`Review requested from: ${pr.requested_from.join(", ")}`}>👁</span><span className="si-val si-requested-active">{requestedCount}</span></>
+          )}
           <span className={`si-icon ${commentTotal > 0 ? (commentUnresolved > 0 ? "si-comments-unresolved" : "si-comments-resolved") : "si-dim"}`} title={commentTotal > 0 ? `${commentUnresolved} unresolved / ${commentTotal} threads` : "No review threads"}>💬</span>
           <span className={`si-val ${commentTotal > 0 ? (commentUnresolved > 0 ? "si-comments-unresolved" : "si-comments-resolved") : "si-dim"}`}>{commentTotal > 0 ? `${commentUnresolved}/${commentTotal}` : ""}</span>
           <span className={`si-icon ${hasConflicts ? "si-conflicts-active" : "si-dim"}`} title={hasConflicts ? "Has merge conflicts" : "No conflicts"}>⚡</span>
