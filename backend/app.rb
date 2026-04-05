@@ -29,10 +29,10 @@ $rate_limit_reset = nil # Time when rate limit resets; skip GH calls until then
 $rate_limit_info = { limit: nil, used: nil, remaining: nil, reset: nil, updated_at: nil } # Cached from GraphQL response headers + inline rateLimit field
 # Rolling history of rate limit snapshots for the GitHub Statistics chart.
 # Each entry: { remaining:, limit:, used:, reset:, recorded_at: ISO8601 }
-# Capped at 500 entries to bound memory; one entry per gh_request call.
+# One entry per minute (deduped by minute); 30 days = 43200 minutes max.
 $rate_limit_history = []
 $rate_limit_history_mutex = Mutex.new
-RATE_LIMIT_HISTORY_MAX = 500
+RATE_LIMIT_HISTORY_MAX = 43_200
 REFRESH_COOLDOWN = Integer(ENV.fetch("REFRESH_COOLDOWN", "60")) # seconds — prevent rapid user-triggered refreshes
 
 # --- GitHub API helpers ---
@@ -91,18 +91,26 @@ def gh_request(http, query)
     $rate_limit_info[:limit] = rl["limit"] if rl["limit"]
   end
   $rate_limit_info[:updated_at] = Time.now.utc.iso8601
-  # Append snapshot to history for the GitHub Statistics chart
+  # Record one snapshot per minute for the GitHub Statistics chart.
+  # Multiple gh_request calls within the same minute update the existing entry
+  # rather than appending, so the chart shows clean 1-minute resolution.
   if $rate_limit_info[:remaining] && $rate_limit_info[:limit]
+    now = Time.now.utc
+    minute_key = now.strftime("%Y-%m-%dT%H:%M:00Z")
     snapshot = {
       remaining: $rate_limit_info[:remaining],
       limit: $rate_limit_info[:limit],
       used: $rate_limit_info[:limit] - $rate_limit_info[:remaining],
       reset: $rate_limit_info[:reset],
-      recorded_at: Time.now.utc.iso8601
+      recorded_at: minute_key
     }
     $rate_limit_history_mutex.synchronize do
-      $rate_limit_history << snapshot
-      $rate_limit_history.shift if $rate_limit_history.size > RATE_LIMIT_HISTORY_MAX
+      if $rate_limit_history.last && $rate_limit_history.last[:recorded_at] == minute_key
+        $rate_limit_history[-1] = snapshot
+      else
+        $rate_limit_history << snapshot
+        $rate_limit_history.shift if $rate_limit_history.size > RATE_LIMIT_HISTORY_MAX
+      end
     end
   end
   parsed
