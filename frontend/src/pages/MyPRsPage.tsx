@@ -14,6 +14,7 @@ export function MyPRsPage() {
   const { visibleColumns } = useColumnVisibility();
 
   const fetchData = useCallback(async () => {
+    if (document.hidden) return;
     try {
       const res = await fetch(`${API_URL}/api/my-prs`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -43,7 +44,12 @@ export function MyPRsPage() {
   useEffect(() => {
     fetchData();
     const interval = setInterval(fetchData, data?.updated_at ? 30_000 : 3_000);
-    return () => clearInterval(interval);
+    const onVisible = () => { if (!document.hidden) fetchData(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [fetchData, data?.updated_at]);
 
   const updatedAtRelative = data?.updated_at ? timeAgo(data.updated_at) : "—";

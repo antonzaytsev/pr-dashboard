@@ -33,6 +33,7 @@ $rate_limit_info = { limit: nil, used: nil, remaining: nil, reset: nil, updated_
 $rate_limit_history = []
 $rate_limit_history_mutex = Mutex.new
 RATE_LIMIT_HISTORY_MAX = 500
+REFRESH_COOLDOWN = Integer(ENV.fetch("REFRESH_COOLDOWN", "60")) # seconds — prevent rapid user-triggered refreshes
 
 # --- GitHub API helpers ---
 
@@ -107,12 +108,13 @@ def gh_request(http, query)
   parsed
 end
 
-def fetch_prs
+def fetch_unified_prs(states: "OPEN", window: nil)
   if rate_limited?
-    $stderr.puts "[#{Time.now}] Skipping fetch_prs — rate limited until #{$rate_limit_reset}"
+    $stderr.puts "[#{Time.now}] Skipping fetch — rate limited until #{$rate_limit_reset}"
     return nil
   end
-  cutoff = Time.now - ($days_window * 86400)
+  effective_window = window || $days_window
+  cutoff = Time.now - (effective_window * 86400)
   all_prs = []
 
   $enabled_repos.each do |repo_full|
@@ -128,12 +130,13 @@ def fetch_prs
           query {
             rateLimit { cost remaining resetAt limit }
             repository(owner: "#{owner}", name: "#{name}") {
-              pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
+              pullRequests(states: #{states}, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
                 pageInfo { hasNextPage endCursor }
                 nodes {
                   number title isDraft mergeable createdAt updatedAt baseRefName
                   author { login }
                   reviewDecision
+                  mergedAt state additions deletions changedFiles
                 }
               }
             }
@@ -215,114 +218,6 @@ def fetch_prs
   all_prs
 end
 
-STATS_DETAIL_FIELDS = <<~GQL.freeze
-  reviews(last: 100) { nodes { author { login } state submittedAt } }
-  reviewThreads(first: 50) { nodes { comments(first: 30) { nodes { author { login } createdAt } } } }
-GQL
-
-def fetch_stats_prs
-  if rate_limited?
-    $stderr.puts "[#{Time.now}] Skipping fetch_stats_prs — rate limited until #{$rate_limit_reset}"
-    return nil
-  end
-  cutoff = Time.now - ($stats_window * 86400)
-  all_prs = []
-
-  $enabled_repos.each do |repo_full|
-    owner, name = repo_full.split("/")
-
-    repo_prs = []
-    with_gh_connection do |http|
-      cursor = nil
-      loop do
-        after_clause = cursor ? %Q(, after: "#{cursor}") : ""
-        query = <<~GQL
-          query {
-            rateLimit { cost remaining resetAt limit }
-            repository(owner: "#{owner}", name: "#{name}") {
-              pullRequests(states: [OPEN, MERGED], first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
-                pageInfo { hasNextPage endCursor }
-                nodes {
-                  number title isDraft createdAt updatedAt mergedAt state
-                  author { login }
-                  additions deletions changedFiles
-                }
-              }
-            }
-          }
-        GQL
-
-        data = gh_request(http, query)
-        nodes = data.dig("data", "repository", "pullRequests", "nodes") || []
-        page_info = data.dig("data", "repository", "pullRequests", "pageInfo")
-        nodes.each { |n| n["_repo"] = repo_full }
-        repo_prs.concat(nodes)
-
-        last_updated = nodes.last && Time.parse(nodes.last["updatedAt"])
-        break if last_updated && last_updated < cutoff
-        break unless page_info&.dig("hasNextPage")
-        cursor = page_info["endCursor"]
-      end
-    end
-
-    relevant = repo_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
-    $stderr.puts "[#{Time.now}] Stats pass 1 done (#{repo_full}): #{repo_prs.size} fetched, #{relevant.size} within window"
-
-    # Incremental: skip detail fetch for PRs whose updatedAt is unchanged since last poll
-    needs_fetch = []
-    cached_details = {}
-    relevant.each do |pr|
-      cache_key = "stats/#{repo_full}/#{pr["number"]}"
-      cached = $detail_cache_mutex.synchronize { $detail_cache[cache_key] }
-      if cached && cached[:updated_at] == pr["updatedAt"]
-        cached_details[pr["number"]] = cached[:details]
-      else
-        needs_fetch << pr["number"]
-      end
-    end
-    $stderr.puts "[#{Time.now}] Stats pass 2 (#{repo_full}): #{cached_details.size} cached, #{needs_fetch.size} need fetch"
-
-    batches = needs_fetch.each_slice(DETAIL_BATCH_SIZE).to_a
-    details = {}
-    mutex = Mutex.new
-
-    batches.each_slice(MAX_PARALLEL) do |chunk|
-      threads = chunk.map do |batch|
-        Thread.new do
-          with_gh_connection do |http|
-            aliases = batch.map { |n|
-              "pr_#{n}: pullRequest(number: #{n}) {\n#{STATS_DETAIL_FIELDS}}"
-            }.join("\n")
-            query = %Q(query { rateLimit { cost remaining resetAt limit }\nrepository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
-            data = gh_request(http, query)
-            repo = data.dig("data", "repository") || {}
-            batch.each do |n|
-              d = repo["pr_#{n}"]
-              mutex.synchronize { details[n] = d } if d
-            end
-          end
-        rescue StandardError => e
-          $stderr.puts "[#{Time.now}] Stats detail batch error: #{e.message}"
-        end
-      end
-      threads.each(&:join)
-    end
-
-    # Merge fetched details into cache for next cycle
-    details.each do |n, d|
-      pr = relevant.find { |p| p["number"] == n }
-      cache_key = "stats/#{repo_full}/#{n}"
-      $detail_cache_mutex.synchronize { $detail_cache[cache_key] = { updated_at: pr["updatedAt"], details: d } }
-    end
-
-    all_details = cached_details.merge(details)
-    relevant.each { |pr| pr.merge!(all_details[pr["number"]] || {}) }
-    $stderr.puts "[#{Time.now}] Stats pass 2 done (#{repo_full}): #{details.size} fetched, #{cached_details.size} from cache"
-    all_prs.concat(relevant)
-  end
-
-  all_prs
-end
 
 def process_stats(raw_prs)
   cutoff = Time.now - ($stats_window * 86400)
@@ -675,7 +570,7 @@ def process_my_prs(raw_prs)
 end
 
 def refresh_cache
-  raw = fetch_prs
+  raw = fetch_unified_prs(states: "OPEN", window: $days_window)
   return unless raw
   result = process_prs(raw)
   my_result = process_my_prs(raw)
@@ -689,11 +584,19 @@ rescue StandardError => e
 end
 
 def refresh_stats_cache
-  raw = fetch_stats_prs
+  # Fetch OPEN+MERGED with the wider stats window. Also refreshes the PR cache
+  # since we're fetching all the data anyway — avoids a separate fetch_unified_prs call.
+  raw = fetch_unified_prs(states: "[OPEN, MERGED]", window: [$days_window, $stats_window].max)
   return unless raw
-  result = process_stats(raw)
-  $cache_mutex.synchronize { $stats_cache = result }
-  $stderr.puts "[#{Time.now}] Stats refreshed"
+  result = process_prs(raw)
+  my_result = process_my_prs(raw)
+  stats_result = process_stats(raw)
+  $cache_mutex.synchronize do
+    $pr_cache = result
+    $my_pr_cache = my_result
+    $stats_cache = stats_result
+  end
+  $stderr.puts "[#{Time.now}] Refreshed all: #{result[:total]} PRs, #{my_result[:total]} my PRs + stats"
 rescue StandardError => e
   $stderr.puts "[#{Time.now}] Stats refresh error: #{e.message}"
 end
@@ -740,23 +643,35 @@ get "/api/my-prs" do
 end
 
 post "/api/refresh" do
+  content_type :json
+  pr_age = $cache_mutex.synchronize { $pr_cache[:updated_at] ? (Time.now - Time.parse($pr_cache[:updated_at])).to_i : nil }
+  if pr_age && pr_age < REFRESH_COOLDOWN
+    return $cache_mutex.synchronize { $pr_cache.dup }.to_json
+  end
   refresh_cache
   refresh_stats_cache
-  content_type :json
   data = $cache_mutex.synchronize { $pr_cache.dup }
   data.to_json
 end
 
 post "/api/refresh/prs" do
-  refresh_cache
   content_type :json
+  pr_age = $cache_mutex.synchronize { $pr_cache[:updated_at] ? (Time.now - Time.parse($pr_cache[:updated_at])).to_i : nil }
+  if pr_age && pr_age < REFRESH_COOLDOWN
+    return $cache_mutex.synchronize { $pr_cache.dup }.to_json
+  end
+  refresh_cache
   data = $cache_mutex.synchronize { $pr_cache.dup }
   data.to_json
 end
 
 post "/api/refresh/stats" do
-  refresh_stats_cache
   content_type :json
+  stats_age = $cache_mutex.synchronize { $stats_cache[:updated_at] ? (Time.now - Time.parse($stats_cache[:updated_at])).to_i : nil }
+  if stats_age && stats_age < REFRESH_COOLDOWN
+    return $cache_mutex.synchronize { $stats_cache.dup }.to_json
+  end
+  refresh_stats_cache
   data = $cache_mutex.synchronize { $stats_cache.dup }
   data.to_json
 end
@@ -907,17 +822,23 @@ post "/api/pr/:owner/:name/:number/approve" do
   owner = params[:owner]
   name = params[:name]
 
-  # First get the PR node ID
-  id_query = <<~GQL
-    query {
-      repository(owner: "#{owner}", name: "#{name}") {
-        pullRequest(number: #{pr_number}) { id }
-      }
-    }
-  GQL
+  # Use node_id from request body if provided (already fetched by the detail view),
+  # otherwise fall back to a lookup query. Saves one GraphQL call per approval.
+  body = begin JSON.parse(request.body.read) rescue {} end
+  pr_id = body["node_id"]
 
-  data = with_gh_connection { |http| gh_request(http, id_query) }
-  pr_id = data.dig("data", "repository", "pullRequest", "id")
+  unless pr_id
+    id_query = <<~GQL
+      query {
+        repository(owner: "#{owner}", name: "#{name}") {
+          pullRequest(number: #{pr_number}) { id }
+        }
+      }
+    GQL
+
+    data = with_gh_connection { |http| gh_request(http, id_query) }
+    pr_id = data.dig("data", "repository", "pullRequest", "id")
+  end
   halt 404, { error: "PR not found" }.to_json unless pr_id
 
   # Submit approval review
