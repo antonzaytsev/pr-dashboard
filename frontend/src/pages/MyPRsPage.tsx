@@ -30,7 +30,7 @@ export function MyPRsPage() {
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch(`${API_URL}/api/refresh`, { method: "POST" });
+      const res = await fetch(`${API_URL}/api/refresh/prs`, { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await fetchData();
     } catch (e) {

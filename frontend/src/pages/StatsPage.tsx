@@ -70,9 +70,10 @@ export function StatsPage() {
   const triggerRefresh = async () => {
     setRefreshing(true);
     try {
-      const res = await fetch(`${API_URL}/api/refresh`, { method: "POST" });
+      const res = await fetch(`${API_URL}/api/refresh/stats`, { method: "POST" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      await fetchData();
+      const json: StatsData = await res.json();
+      setData(json);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Refresh failed");
     } finally {
@@ -134,7 +135,7 @@ export function StatsPage() {
     <>
       <header>
         <div className="header-left">
-          <h1>Statistics</h1>
+          <h1>PR Statistics</h1>
           {data && data.updated_at && (
             <span className="subtitle" title={updatedAtAbsolute}>
               last {data.window_days}d &middot; updated {updatedAtRelative}

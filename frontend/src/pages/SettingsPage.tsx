@@ -41,17 +41,27 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    // Fetch the backend's current days_window and only sync if it differs from localStorage,
+    // to avoid triggering a full GitHub API refresh on every Settings page load.
     const stored = localStorage.getItem("days_window");
-    if (stored) {
-      const days = Number(stored);
-      setDaysWindow(days);
-      syncToBackend(days).catch(() => {});
-    } else {
-      fetch(`${API_URL}/api/prs`)
-        .then((res) => res.ok ? res.json() : null)
-        .then((json) => { if (json) setDaysWindow(json.days_window); })
-        .catch(() => {});
-    }
+    fetch(`${API_URL}/api/prs`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((json) => {
+        if (!json) return;
+        const backendDays = json.days_window;
+        if (stored) {
+          const localDays = Number(stored);
+          setDaysWindow(localDays);
+          if (localDays !== backendDays) {
+            syncToBackend(localDays).catch(() => {});
+          }
+        } else {
+          setDaysWindow(backendDays);
+        }
+      })
+      .catch(() => {
+        if (stored) setDaysWindow(Number(stored));
+      });
   }, [syncToBackend]);
 
   const saveDaysWindow = async (days: number) => {

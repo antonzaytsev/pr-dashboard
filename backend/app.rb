@@ -26,7 +26,13 @@ $my_pr_cache = { sections: [], updated_at: nil, total: 0 }
 $stats_cache = { updated_at: nil }
 $cache_mutex = Mutex.new
 $rate_limit_reset = nil # Time when rate limit resets; skip GH calls until then
-$rate_limit_info = { limit: nil, used: nil, remaining: nil, reset: nil } # Cached from GraphQL response headers + inline rateLimit field
+$rate_limit_info = { limit: nil, used: nil, remaining: nil, reset: nil, updated_at: nil } # Cached from GraphQL response headers + inline rateLimit field
+# Rolling history of rate limit snapshots for the GitHub Statistics chart.
+# Each entry: { remaining:, limit:, used:, reset:, recorded_at: ISO8601 }
+# Capped at 500 entries to bound memory; one entry per gh_request call.
+$rate_limit_history = []
+$rate_limit_history_mutex = Mutex.new
+RATE_LIMIT_HISTORY_MAX = 500
 
 # --- GitHub API helpers ---
 
@@ -82,6 +88,21 @@ def gh_request(http, query)
     $rate_limit_info[:reset] = Time.parse(rl["resetAt"]).to_i if rl["resetAt"]
     $rate_limit_info[:used] = rl["cost"] if rl["cost"]
     $rate_limit_info[:limit] = rl["limit"] if rl["limit"]
+  end
+  $rate_limit_info[:updated_at] = Time.now.utc.iso8601
+  # Append snapshot to history for the GitHub Statistics chart
+  if $rate_limit_info[:remaining] && $rate_limit_info[:limit]
+    snapshot = {
+      remaining: $rate_limit_info[:remaining],
+      limit: $rate_limit_info[:limit],
+      used: $rate_limit_info[:limit] - $rate_limit_info[:remaining],
+      reset: $rate_limit_info[:reset],
+      recorded_at: Time.now.utc.iso8601
+    }
+    $rate_limit_history_mutex.synchronize do
+      $rate_limit_history << snapshot
+      $rate_limit_history.shift if $rate_limit_history.size > RATE_LIMIT_HISTORY_MAX
+    end
   end
   parsed
 end
@@ -958,6 +979,11 @@ get "/api/rate-limit" do
   # Serve from cached values gathered from GraphQL response headers and inline rateLimit fields,
   # avoiding a separate REST API call that would itself consume rate limit.
   $rate_limit_info.to_json
+end
+
+get "/api/rate-limit-history" do
+  content_type :json
+  $rate_limit_history_mutex.synchronize { $rate_limit_history.dup }.to_json
 end
 
 get "/health" do

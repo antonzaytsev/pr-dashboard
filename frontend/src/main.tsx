@@ -7,6 +7,7 @@ import { MyPRsPage } from "./pages/MyPRsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { PRViewPage } from "./pages/PRViewPage";
 import { StatsPage } from "./pages/StatsPage";
+import { GitHubStatsPage } from "./pages/GitHubStatsPage";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -16,6 +17,7 @@ createRoot(document.getElementById("root")!).render(
           <Route index element={<ReviewPage />} />
           <Route path="my-prs" element={<MyPRsPage />} />
           <Route path="stats" element={<StatsPage />} />
+          <Route path="gh-stats" element={<GitHubStatsPage />} />
           <Route path="pr/:owner/:repo/:number" element={<PRViewPage />} />
           <Route path="settings" element={<SettingsPage />} />
         </Route>

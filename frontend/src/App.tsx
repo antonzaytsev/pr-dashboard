@@ -9,6 +9,7 @@ interface RateLimit {
   used: number;
   remaining: number;
   reset: number;
+  updated_at: string | null;
 }
 
 function RateLimitIndicator() {
@@ -39,6 +40,15 @@ function RateLimitIndicator() {
     resetLabel = mins > 0 ? ` · resets in ${mins}m` : " · resets soon";
   }
 
+  let updatedLabel = "";
+  if (rl.updated_at) {
+    const updatedDate = new Date(rl.updated_at);
+    const secsAgo = Math.round((Date.now() - updatedDate.getTime()) / 1000);
+    if (secsAgo < 60) updatedLabel = ` · updated ${secsAgo}s ago`;
+    else if (secsAgo < 3600) updatedLabel = ` · updated ${Math.round(secsAgo / 60)}m ago`;
+    else updatedLabel = ` · updated ${Math.round(secsAgo / 3600)}h ago`;
+  }
+
   const cls = isExhausted
     ? "rate-limit exhausted"
     : isLow
@@ -46,7 +56,7 @@ function RateLimitIndicator() {
       : "rate-limit ok";
 
   return (
-    <span className={cls} title={`GitHub API: ${rl.remaining}/${rl.limit} remaining${resetLabel}`}>
+    <span className={cls} title={`GitHub API: ${rl.remaining}/${rl.limit} remaining${resetLabel}${updatedLabel}`}>
       {isExhausted ? `API limit exceeded${resetLabel}` : `API: ${pct}%`}
     </span>
   );
@@ -60,7 +70,8 @@ function App() {
           PRs to Review
         </NavLink>
         <NavLink to="/my-prs">My PRs</NavLink>
-        <NavLink to="/stats">Statistics</NavLink>
+        <NavLink to="/stats">PR Statistics</NavLink>
+        <NavLink to="/gh-stats">GitHub Statistics</NavLink>
         <RateLimitIndicator />
         <NavLink to="/settings" className="nav-settings">
           Settings

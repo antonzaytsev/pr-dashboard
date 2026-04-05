@@ -1089,3 +1089,14 @@ a:hover {
 .stats-me-row:hover td {
   background: rgba(88, 166, 255, 0.12);
 }
+
+/* GitHub Statistics Page */
+.gh-stats-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.gh-stats-chart {
+  margin-top: 8px;
+}
