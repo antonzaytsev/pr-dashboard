@@ -14,6 +14,7 @@ $enabled_repos = AVAILABLE_REPOS.keys.dup
 MY_ALIASES = %w[zaytsev-anton antonzaytsev].freeze
 GH_TOKEN = ENV.fetch("GITHUB_TOKEN")
 POLL_INTERVAL = Integer(ENV.fetch("POLL_INTERVAL", "600")) # seconds
+STATS_POLL_INTERVAL = Integer(ENV.fetch("STATS_POLL_INTERVAL", "1800")) # seconds — stats change slowly, poll less often
 $days_window = 3
 $stats_window = 7
 
@@ -25,11 +26,17 @@ $my_pr_cache = { sections: [], updated_at: nil, total: 0 }
 $stats_cache = { updated_at: nil }
 $cache_mutex = Mutex.new
 $rate_limit_reset = nil # Time when rate limit resets; skip GH calls until then
+$rate_limit_info = { limit: nil, used: nil, remaining: nil, reset: nil } # Cached from GraphQL response headers + inline rateLimit field
 
 # --- GitHub API helpers ---
 
 DETAIL_BATCH_SIZE = 15
 MAX_PARALLEL = 4
+
+# Cache of previously fetched PR details keyed by "repo/number" => { updated_at:, details: }
+# Used to skip re-fetching details for PRs whose updatedAt hasn't changed since last poll.
+$detail_cache = {}
+$detail_cache_mutex = Mutex.new
 
 GH_URI = URI("https://api.github.com/graphql").freeze
 
@@ -63,7 +70,20 @@ def gh_request(http, query)
   elsif remaining && remaining.to_i > 0
     $rate_limit_reset = nil
   end
-  JSON.parse(res.body)
+  # Update cached rate limit info from response headers
+  $rate_limit_info[:remaining] = remaining.to_i if remaining
+  $rate_limit_info[:reset] = reset.to_i if reset
+  limit_header = res["x-ratelimit-limit"]
+  $rate_limit_info[:limit] = limit_header.to_i if limit_header
+  parsed = JSON.parse(res.body)
+  # Also read inline rateLimit field if present (more accurate cost tracking)
+  if (rl = parsed.dig("data", "rateLimit"))
+    $rate_limit_info[:remaining] = rl["remaining"] if rl["remaining"]
+    $rate_limit_info[:reset] = Time.parse(rl["resetAt"]).to_i if rl["resetAt"]
+    $rate_limit_info[:used] = rl["cost"] if rl["cost"]
+    $rate_limit_info[:limit] = rl["limit"] if rl["limit"]
+  end
+  parsed
 end
 
 def fetch_prs
@@ -85,6 +105,7 @@ def fetch_prs
         after_clause = cursor ? %Q(, after: "#{cursor}") : ""
         query = <<~GQL
           query {
+            rateLimit { cost remaining resetAt limit }
             repository(owner: "#{owner}", name: "#{name}") {
               pullRequests(states: OPEN, first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
                 pageInfo { hasNextPage endCursor }
@@ -115,8 +136,23 @@ def fetch_prs
     relevant = repo_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
     $stderr.puts "[#{Time.now}] Pass 1 done (#{repo_full}): #{repo_prs.size} fetched, #{relevant.size} within window"
 
-    # Pass 2: fetch review/comment details in parallel batches
-    batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
+    # Pass 2: fetch review/comment details in parallel batches.
+    # Skip re-fetching details for PRs whose updatedAt hasn't changed since last poll
+    # — their review/comment data can't have changed either.
+    needs_fetch = []
+    cached_details = {}
+    relevant.each do |pr|
+      cache_key = "#{repo_full}/#{pr["number"]}"
+      cached = $detail_cache_mutex.synchronize { $detail_cache[cache_key] }
+      if cached && cached[:updated_at] == pr["updatedAt"]
+        cached_details[pr["number"]] = cached[:details]
+      else
+        needs_fetch << pr["number"]
+      end
+    end
+    $stderr.puts "[#{Time.now}] Pass 2 (#{repo_full}): #{cached_details.size} cached, #{needs_fetch.size} need fetch"
+
+    batches = needs_fetch.each_slice(DETAIL_BATCH_SIZE).to_a
     details = {}
     mutex = Mutex.new
 
@@ -127,7 +163,7 @@ def fetch_prs
             aliases = batch.map { |n|
               "pr_#{n}: pullRequest(number: #{n}) {\n#{DETAIL_FIELDS}}"
             }.join("\n")
-            query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
+            query = %Q(query { rateLimit { cost remaining resetAt limit }\nrepository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
             data = gh_request(http, query)
             repo = data.dig("data", "repository") || {}
             batch.each do |n|
@@ -142,8 +178,16 @@ def fetch_prs
       threads.each(&:join)
     end
 
-    relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
-    $stderr.puts "[#{Time.now}] Pass 2 done (#{repo_full}): details fetched for #{details.size} PRs in #{batches.size} batches"
+    # Merge fetched details into cache for next cycle
+    details.each do |n, d|
+      pr = relevant.find { |p| p["number"] == n }
+      cache_key = "#{repo_full}/#{n}"
+      $detail_cache_mutex.synchronize { $detail_cache[cache_key] = { updated_at: pr["updatedAt"], details: d } }
+    end
+
+    all_details = cached_details.merge(details)
+    relevant.each { |pr| pr.merge!(all_details[pr["number"]] || {}) }
+    $stderr.puts "[#{Time.now}] Pass 2 done (#{repo_full}): #{details.size} fetched, #{cached_details.size} from cache"
     all_prs.concat(relevant)
   end
 
@@ -173,6 +217,7 @@ def fetch_stats_prs
         after_clause = cursor ? %Q(, after: "#{cursor}") : ""
         query = <<~GQL
           query {
+            rateLimit { cost remaining resetAt limit }
             repository(owner: "#{owner}", name: "#{name}") {
               pullRequests(states: [OPEN, MERGED], first: 100, orderBy: {field: UPDATED_AT, direction: DESC}#{after_clause}) {
                 pageInfo { hasNextPage endCursor }
@@ -202,7 +247,21 @@ def fetch_stats_prs
     relevant = repo_prs.select { |pr| Time.parse(pr["updatedAt"]) > cutoff }
     $stderr.puts "[#{Time.now}] Stats pass 1 done (#{repo_full}): #{repo_prs.size} fetched, #{relevant.size} within window"
 
-    batches = relevant.map { |pr| pr["number"] }.each_slice(DETAIL_BATCH_SIZE).to_a
+    # Incremental: skip detail fetch for PRs whose updatedAt is unchanged since last poll
+    needs_fetch = []
+    cached_details = {}
+    relevant.each do |pr|
+      cache_key = "stats/#{repo_full}/#{pr["number"]}"
+      cached = $detail_cache_mutex.synchronize { $detail_cache[cache_key] }
+      if cached && cached[:updated_at] == pr["updatedAt"]
+        cached_details[pr["number"]] = cached[:details]
+      else
+        needs_fetch << pr["number"]
+      end
+    end
+    $stderr.puts "[#{Time.now}] Stats pass 2 (#{repo_full}): #{cached_details.size} cached, #{needs_fetch.size} need fetch"
+
+    batches = needs_fetch.each_slice(DETAIL_BATCH_SIZE).to_a
     details = {}
     mutex = Mutex.new
 
@@ -213,7 +272,7 @@ def fetch_stats_prs
             aliases = batch.map { |n|
               "pr_#{n}: pullRequest(number: #{n}) {\n#{STATS_DETAIL_FIELDS}}"
             }.join("\n")
-            query = %Q(query { repository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
+            query = %Q(query { rateLimit { cost remaining resetAt limit }\nrepository(owner: "#{owner}", name: "#{name}") {\n#{aliases}\n} })
             data = gh_request(http, query)
             repo = data.dig("data", "repository") || {}
             batch.each do |n|
@@ -228,8 +287,16 @@ def fetch_stats_prs
       threads.each(&:join)
     end
 
-    relevant.each { |pr| pr.merge!(details[pr["number"]] || {}) }
-    $stderr.puts "[#{Time.now}] Stats pass 2 done (#{repo_full}): details for #{details.size} PRs"
+    # Merge fetched details into cache for next cycle
+    details.each do |n, d|
+      pr = relevant.find { |p| p["number"] == n }
+      cache_key = "stats/#{repo_full}/#{n}"
+      $detail_cache_mutex.synchronize { $detail_cache[cache_key] = { updated_at: pr["updatedAt"], details: d } }
+    end
+
+    all_details = cached_details.merge(details)
+    relevant.each { |pr| pr.merge!(all_details[pr["number"]] || {}) }
+    $stderr.puts "[#{Time.now}] Stats pass 2 done (#{repo_full}): #{details.size} fetched, #{cached_details.size} from cache"
     all_prs.concat(relevant)
   end
 
@@ -396,21 +463,37 @@ def extract_pr_details(pr)
   my_approved = (pr.dig("reviews", "nodes") || [])
     .any? { |r| MY_ALIASES.include?(r.dig("author", "login")) && r["state"] == "APPROVED" }
 
-  author_replied = false
-  if reviewed && !my_approved && my_reviewed_at
+  # Detect whether the PR author has responded (comment or new code) since my last review.
+  # This drives the "re-review" flag: if the author acted after I reviewed, the PR moves
+  # from "Already reviewed by me" back to "Need my review".
+  # We intentionally do NOT gate on !my_approved — even if I approved, new code or a reply
+  # from the author means I should look again. Without this, approved PRs where the author
+  # pushes follow-up commits silently stay hidden.
+  author_responded = false
+  if reviewed && my_reviewed_at
     pr_author = pr.dig("author", "login")
+
+    # Check 1: author replied in a review thread I participated in.
     (pr.dig("reviewThreads", "nodes") || []).each do |thread|
       comments = thread.dig("comments", "nodes") || []
       next unless comments.any? { |c| MY_ALIASES.include?(c.dig("author", "login")) }
 
       if comments.any? { |c| c.dig("author", "login") == pr_author && c["createdAt"] && c["createdAt"] > my_reviewed_at }
-        author_replied = true
+        author_responded = true
         break
       end
     end
+
+    # Check 2: author pushed new commits after my last review.
+    # The GraphQL query fetches commits(last: 1), so committedDate is the latest commit.
+    # If that commit is newer than my review, the author changed code and I should re-review.
+    unless author_responded
+      last_commit_date = pr.dig("commits", "nodes", 0, "commit", "committedDate")
+      author_responded = true if last_commit_date && last_commit_date > my_reviewed_at
+    end
   end
 
-  needs_re_review = reviewed && !my_approved && author_replied
+  needs_re_review = reviewed && author_responded
 
   review_threads = pr.dig("reviewThreads", "nodes") || []
   unresolved_comments = review_threads.count { |t| !t["isResolved"] }
@@ -472,15 +555,18 @@ end
 def process_prs(raw_prs)
   cutoff = Time.now - ($days_window * 86400)
 
+  # Sections indexed 0-3. PRs are assigned to exactly one section based on
+  # review state. The order here matches the display order in the frontend.
   sections = [
-    { id: 1, title: "Need my review", color: "#d29922", prs: [] },
-    { id: 2, title: "Not reviewed by me", color: "#58a6ff", prs: [] },
-    { id: 3, title: "Already reviewed by me", color: "#3fb950", prs: [] },
-    { id: 4, title: "Draft", color: "#8b949e", prs: [] }
+    { id: 1, title: "Need my review", color: "#d29922", prs: [] },     # 0: explicitly requested or needs re-review
+    { id: 2, title: "Not reviewed by me", color: "#58a6ff", prs: [] },  # 1: open PRs I haven't reviewed yet
+    { id: 3, title: "Already reviewed by me", color: "#3fb950", prs: [] }, # 2: I submitted a review already
+    { id: 4, title: "Draft", color: "#8b949e", prs: [] }               # 3: draft PRs (always separated)
   ]
 
   raw_prs.each do |pr|
     next if Time.parse(pr["updatedAt"]) <= cutoff
+    # Own PRs are never shown on the review page — they appear on "My PRs" page instead.
     next if MY_ALIASES.include?(pr.dig("author", "login"))
 
     details = extract_pr_details(pr)
@@ -490,16 +576,30 @@ def process_prs(raw_prs)
       next
     end
 
-    section = if details[:my_approved] then 2
-              elsif details[:requested_from_me] then 0
+    # Section assignment priority (first match wins):
+    #   0 "Need my review"        — my review is explicitly requested, OR
+    #                                author responded (comment/code) after my non-approval review
+    #   2 "Already reviewed by me" — I approved, OR I reviewed and author hasn't responded yet
+    #   1 "Not reviewed by me"    — I haven't submitted any review yet
+    # my_approved always wins → section 2. Once I approved a PR, it's done from my side
+    # regardless of subsequent author activity. If new review is truly needed, the author
+    # or a maintainer will re-request review (caught by requested_from_me).
+    section = if details[:requested_from_me] then 0
+              elsif details[:my_approved] then 2
               elsif details[:needs_re_review] then 0
               elsif !details[:reviewed] then 1
               else 2
               end
 
-    if section != 1
-      next unless %w[REVIEW_REQUIRED CHANGES_REQUESTED].include?(pr["reviewDecision"])
-    end
+    # No reviewDecision filter for any section. Previously section 2 ("Already reviewed by me")
+    # dropped PRs where reviewDecision was null or APPROVED, but that hid PRs in repos without
+    # required-reviews branch protection (reviewDecision stays null even after reviews).
+    # Instead, visibility is controlled entirely by the re-review logic above:
+    #   - Author responded after my review → moves to section 0 ("Need my review")
+    #   - No response yet → stays in section 2 ("Already reviewed by me")
+    # Section 0 ("Need my review") must also NEVER be filtered — reviewDecision can be empty
+    # even on PRs with pending review requests (e.g. when only bot COMMENTED reviews exist,
+    # which GitHub doesn't count toward reviewDecision).
 
     sections[section][:prs] << build_pr_hash(pr, details)
   end
@@ -580,9 +680,15 @@ end
 # --- Background poller ---
 
 Thread.new do
+  $last_stats_refresh = Time.at(0)
   loop do
     refresh_cache
-    refresh_stats_cache
+    # Stats cover a wider historical window and change slowly (merges, review counts),
+    # so we refresh them less frequently than the live PR list.
+    if Time.now - $last_stats_refresh >= STATS_POLL_INTERVAL
+      refresh_stats_cache
+      $last_stats_refresh = Time.now
+    end
     loaded = $cache_mutex.synchronize { $pr_cache[:updated_at] }
     sleep(loaded ? POLL_INTERVAL : 10)
   end
@@ -617,6 +723,20 @@ post "/api/refresh" do
   refresh_stats_cache
   content_type :json
   data = $cache_mutex.synchronize { $pr_cache.dup }
+  data.to_json
+end
+
+post "/api/refresh/prs" do
+  refresh_cache
+  content_type :json
+  data = $cache_mutex.synchronize { $pr_cache.dup }
+  data.to_json
+end
+
+post "/api/refresh/stats" do
+  refresh_stats_cache
+  content_type :json
+  data = $cache_mutex.synchronize { $stats_cache.dup }
   data.to_json
 end
 
@@ -835,19 +955,9 @@ end
 
 get "/api/rate-limit" do
   content_type :json
-  uri = URI("https://api.github.com/rate_limit")
-  http = Net::HTTP.new(uri.hostname, uri.port)
-  http.use_ssl = true
-  http.open_timeout = 5
-  http.read_timeout = 5
-  req = Net::HTTP::Get.new(uri)
-  req["Authorization"] = "Bearer #{GH_TOKEN}"
-  res = JSON.parse(http.request(req).body)
-  graphql = res.dig("resources", "graphql") || {}
-  { limit: graphql["limit"], used: graphql["used"], remaining: graphql["remaining"], reset: graphql["reset"] }.to_json
-rescue StandardError => e
-  status 502
-  { error: e.message }.to_json
+  # Serve from cached values gathered from GraphQL response headers and inline rateLimit fields,
+  # avoiding a separate REST API call that would itself consume rate limit.
+  $rate_limit_info.to_json
 end
 
 get "/health" do
