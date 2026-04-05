@@ -297,8 +297,9 @@ a:hover {
 /* Status icons column */
 .status-icons {
   display: grid !important;
-  /* icon val icon val icon val icon icon */
-  grid-template-columns: 16px 18px 16px 18px 16px 32px 16px 16px;
+  /* icon val icon val icon val icon val icon icon */
+  grid-template-columns: 16px 18px 16px 18px 16px 18px 16px 32px 16px 16px;
+  white-space: nowrap;
   align-items: center;
   gap: 0 2px;
   white-space: nowrap;
