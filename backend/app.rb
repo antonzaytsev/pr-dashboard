@@ -482,6 +482,9 @@ def process_prs(raw_prs)
 
   raw_prs.each do |pr|
     next if Time.parse(pr["updatedAt"]) <= cutoff
+    # When fed data from the unified fetch (which includes MERGED PRs for stats),
+    # skip non-open PRs — only open PRs belong on the review page.
+    next if pr["state"] && pr["state"] != "OPEN"
     # Own PRs are never shown on the review page — they appear on "My PRs" page instead.
     next if MY_ALIASES.include?(pr.dig("author", "login"))
 
@@ -539,6 +542,7 @@ def process_my_prs(raw_prs)
 
   raw_prs.each do |pr|
     next if Time.parse(pr["updatedAt"]) <= cutoff
+    next if pr["state"] && pr["state"] != "OPEN"
     next unless MY_ALIASES.include?(pr.dig("author", "login"))
 
     details = extract_pr_details(pr)
